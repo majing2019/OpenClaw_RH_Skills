@@ -6,7 +6,7 @@
 >
 > Same standard `SKILL.md` as [OpenClaw](https://github.com/openclaw/openclaw). Install and update the same way.
 
-An OpenClaw and DeepSeek Harness skill that brings multimedia generation capabilities — including image, video, audio, 3D, and text — to conversational AI, powered by 420 [RunningHub](https://www.runninghub.cn) API endpoints. Built with zero external dependencies (pure Python 3 + curl), it lets users create rich media content through natural language, with support for both standard model APIs and custom ComfyUI workflows (AI Applications).
+An OpenClaw and DeepSeek Harness skill that brings multimedia generation capabilities — including image, video, audio, 3D, and text — to conversational AI, powered by 420 [RunningHub](https://www.runninghub.cn) API endpoints. Built with zero external dependencies (pure Python 3 + curl), it supports standard model APIs, custom ComfyUI workflows published as AI Applications, and experimental RHTV Canvas node execution.
 
 ## Capabilities
 
@@ -18,6 +18,7 @@ An OpenClaw and DeepSeek Harness skill that brings multimedia generation capabil
 | **3D** | 16 | text-to-3D, image-to-3D, multi-image-to-3D |
 | **Text** | 52 | image-to-text, video-to-text, text-to-text |
 | **AI Apps** | Unlimited | Run any RunningHub AI Application (custom ComfyUI workflow) |
+| **RHTV Canvas** | Experimental | Inspect a canvas and run individual nodes |
 
 ## Quick Start
 
@@ -41,6 +42,7 @@ The assistant will pull the latest code and reload the skill config. No need to 
 
 - **API Key** — Get one from [RunningHub API Management](https://www.runninghub.cn/enterprise-api/sharedApi) (click "新建")
 - **Wallet balance** — [Recharge here](https://www.runninghub.cn/vip-rights/4) — API calls require funds
+- **RHTV only:** `RHTV_ACCESS_TOKEN` from a signed-in web session. It is not the standard API key and must stay out of chat, logs, and command-line arguments.
 
 ## Usage
 
@@ -52,6 +54,7 @@ Once installed, just talk to your OpenClaw assistant in natural language:
 - *"Upscale this image to 4K"*
 - *"Convert this image to a 3D model"*
 - *"Run this AI app: https://www.runninghub.cn/ai-detail/1877265245566922800"*
+- *"Inspect this RHTV canvas: https://rhtv.runninghub.ai/project/canvas/2103485063252774914"*
 - *"What are the hottest AI apps?"*
 - *"Show me the newest AI apps"*
 
@@ -91,7 +94,10 @@ runninghub/
 ├── scripts/
 │   ├── runninghub.py               # Standard model API client (420 endpoints)
 │   ├── runninghub_app.py           # AI Application client (custom ComfyUI workflows)
+│   ├── rhtv.py                     # Experimental RHTV Canvas client
 │   └── build_capabilities.py       # Generates capabilities.json from models_registry.json
+├── references/
+│   └── rhtv-canvas.md              # RHTV routing, auth, and safety boundaries
 └── data/
     └── capabilities.json           # Full endpoint catalog (auto-generated)
 ```
@@ -116,6 +122,15 @@ runninghub/
 | **Browse** | `--list [--sort S] [--size N] [--page N]` | Browse recommended/hottest/newest AI apps |
 | **Nodes** | `--info WEBAPP_ID` | Show modifiable nodes for an AI app |
 | **Execute** | `--run WEBAPP_ID --node ... --file ... -o /tmp/out` | Run an AI application |
+
+### RHTV Canvas (rhtv.py, experimental)
+
+| Mode | Command | Purpose |
+|------|---------|---------|
+| **Canvas info** | `--info CANVAS_URL_OR_ID` | Read canvas and node summaries |
+| **Run node** | `--run-node CANVAS_URL_OR_ID NODE_ID --set ...` | Override fields and run one node |
+| **Status** | `--status TASK_ID` / `--wait TASK_ID` | Query or wait for a task |
+| **Cancel** | `--cancel TASK_ID` | Cancel a task |
 
 ## Updating Capabilities
 

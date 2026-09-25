@@ -1,12 +1,12 @@
 ---
 name: runninghub
-description: "Generate images, videos, audio, and 3D models via RunningHub API (420 endpoints) and run any RunningHub AI Application (custom ComfyUI workflow) by webappId. Covers text-to-image, image-to-video, text-to-speech, music generation, 3D modeling, image upscaling, AI apps, and more."
-homepage: https://www.runninghub.cn
+description: "Generate images, videos, audio, and 3D models via RunningHub API (420 endpoints), run RunningHub AI Applications by webappId, and inspect or run nodes in RHTV Canvas projects."
 metadata:
   {
     "openclaw":
       {
         "emoji": "🎬",
+        "homepage": "https://www.runninghub.cn",
         "requires": { "bins": ["python3", "curl"] },
         "primaryEnv": "RUNNINGHUB_API_KEY"
       }
@@ -17,6 +17,7 @@ metadata:
 
 Standard API Script: `python3 {baseDir}/scripts/runninghub.py`
 AI App Script: `python3 {baseDir}/scripts/runninghub_app.py`
+RHTV Canvas Script: `python3 {baseDir}/scripts/rhtv.py`
 Data: `{baseDir}/data/capabilities.json`
 
 ## Persona
@@ -74,12 +75,17 @@ Quick check: `python3 {baseDir}/scripts/runninghub.py --check`
 | Video understand | `rhart-text-g-25-pro/video-to-text` | |
 | **AI Application** | **⚠️ Read `{baseDir}/references/ai-application.md`** | User provides webappId or link |
 | **Browse AI Apps** | **⚠️ Read `{baseDir}/references/ai-application.md`** | "有什么应用" / "最热门" / "最新" / "推荐" |
+| **RHTV Canvas** | **⚠️ Read `{baseDir}/references/rhtv-canvas.md`** | `rhtv.runninghub.ai/project/canvas/...` or canvasId |
 
 ## AI Application
 
 When user mentions "AI应用", "workflow", "webappId", pastes a RunningHub AI app link,
 or asks to browse/discover apps ("有什么应用", "最热门的", "最新的", "推荐什么") →
 Read `{baseDir}/references/ai-application.md` and follow its complete flow.
+
+## RHTV Canvas
+
+When the user pastes an `rhtv.runninghub.ai/project/canvas/<canvasId>` link or explicitly asks to inspect or run an RHTV canvas → read `{baseDir}/references/rhtv-canvas.md`. RHTV canvas IDs are not AI Application webappIds; never route these links to `runninghub_app.py`.
 
 ## Script Usage
 

@@ -8,7 +8,9 @@
 
 为 OpenClaw 和 DeepSeek Harness 打造的通用多媒体生成技能，由 [RunningHub](https://www.runninghub.ai) API 驱动。
 
-**420 个标准 API 端点 + 无限 AI 应用**，覆盖图片、视频、音频、3D 模型生成、多模态文本理解，以及任意用户创建的 AI 应用（ComfyUI 工作流）。
+**420 个标准 API 端点 + 无限 AI 应用 + RHTV Canvas（实验性）**，覆盖图片、视频、音频、3D 模型生成、多模态文本理解、用户创建的 AI 应用，以及 RHTV 画布节点执行。
+
+> RHTV Canvas 使用网页账户访问令牌，不使用标准 RunningHub API Key。相关接口并非公开 OpenAPI，兼容性按实验性能力提供。
 
 ## 能力一览
 
@@ -54,6 +56,7 @@
 - *"把这张图放大到 4K"*
 - *"把这张图转成 3D 模型"*
 - *"帮我跑这个 AI 应用 https://www.runninghub.ai/ai-detail/1877265245566922800"*
+- *"查看这个 RHTV 画布 https://rhtv.runninghub.ai/project/canvas/2103485063252774914"*
 - *"最热门的 AI 应用有哪些？"*
 - *"推荐一些最新的 AI 应用"*
 
@@ -93,7 +96,10 @@ runninghub/
 ├── scripts/
 │   ├── runninghub.py               # 标准模型 API 客户端（420 端点）
 │   ├── runninghub_app.py           # AI 应用客户端（自定义 ComfyUI 工作流）
+│   ├── rhtv.py                     # RHTV Canvas 客户端（实验性）
 │   └── build_capabilities.py       # 从 models_registry.json 生成 capabilities.json
+├── references/
+│   └── rhtv-canvas.md              # RHTV 路由、鉴权和安全边界
 └── data/
     └── capabilities.json           # 完整端点目录（自动生成）
 ```
@@ -118,6 +124,17 @@ runninghub/
 | **浏览** | `--list [--sort S] [--size N] [--page N]` | 浏览推荐/最热/最新 AI 应用 |
 | **节点** | `--info WEBAPP_ID` | 查看 AI 应用的可修改节点 |
 | **执行** | `--run WEBAPP_ID --node ... --file ... -o /tmp/out` | 运行 AI 应用 |
+
+### RHTV Canvas（rhtv.py，实验性）
+
+| 模式 | 命令 | 用途 |
+|------|------|------|
+| **画布信息** | `--info CANVAS_URL_OR_ID` | 读取画布和节点摘要 |
+| **运行节点** | `--run-node CANVAS_URL_OR_ID NODE_ID --set ...` | 覆盖参数并运行一个节点 |
+| **状态** | `--status TASK_ID` / `--wait TASK_ID` | 查询或等待任务 |
+| **取消** | `--cancel TASK_ID` | 取消任务 |
+
+RHTV 使用 `RHTV_ACCESS_TOKEN` 环境变量；不要把访问令牌写入命令行、日志或聊天消息。
 
 ## 更新能力目录
 
