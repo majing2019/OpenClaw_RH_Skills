@@ -95,7 +95,10 @@ runninghub/
 │   ├── runninghub.py               # Standard model API client (420 endpoints)
 │   ├── runninghub_app.py           # AI Application client (custom ComfyUI workflows)
 │   ├── rhtv.py                     # Experimental RHTV Canvas client
+│   ├── catalog_server.py           # Local capabilities and AI App browser
 │   └── build_capabilities.py       # Generates capabilities.json from models_registry.json
+├── web/
+│   └── index.html                  # Capability catalog interface
 ├── references/
 │   └── rhtv-canvas.md              # RHTV routing, auth, and safety boundaries
 └── data/
@@ -131,6 +134,10 @@ runninghub/
 | **Run node** | `--run-node CANVAS_URL_OR_ID NODE_ID --set ...` | Override fields and run one node |
 | **Status** | `--status TASK_ID` / `--wait TASK_ID` | Query or wait for a task |
 | **Cancel** | `--cancel TASK_ID` | Cancel a task |
+
+### Local capability browser
+
+Run `python3 runninghub/scripts/catalog_server.py`, then open the local address it prints (normally `http://127.0.0.1:8765`; a nearby free port is selected automatically if needed). The standard catalog works without credentials. Live AI Apps use `RUNNINGHUB_API_KEY`; RHTV readiness uses `RHTV_ACCESS_TOKEN`. Secrets stay in the local server process and are never returned to the page.
 
 ## Updating Capabilities
 

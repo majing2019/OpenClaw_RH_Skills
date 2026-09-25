@@ -18,6 +18,7 @@ metadata:
 Standard API Script: `python3 {baseDir}/scripts/runninghub.py`
 AI App Script: `python3 {baseDir}/scripts/runninghub_app.py`
 RHTV Canvas Script: `python3 {baseDir}/scripts/rhtv.py`
+Capability Catalog: `python3 {baseDir}/scripts/catalog_server.py`
 Data: `{baseDir}/data/capabilities.json`
 
 ## Persona
@@ -76,6 +77,7 @@ Quick check: `python3 {baseDir}/scripts/runninghub.py --check`
 | **AI Application** | **⚠️ Read `{baseDir}/references/ai-application.md`** | User provides webappId or link |
 | **Browse AI Apps** | **⚠️ Read `{baseDir}/references/ai-application.md`** | "有什么应用" / "最热门" / "最新" / "推荐" |
 | **RHTV Canvas** | **⚠️ Read `{baseDir}/references/rhtv-canvas.md`** | `rhtv.runninghub.ai/project/canvas/...` or canvasId |
+| **Browse capabilities locally** | `python3 {baseDir}/scripts/catalog_server.py` | Open the local address printed by the server |
 
 ## AI Application
 
@@ -86,6 +88,10 @@ Read `{baseDir}/references/ai-application.md` and follow its complete flow.
 ## RHTV Canvas
 
 When the user pastes an `rhtv.runninghub.ai/project/canvas/<canvasId>` link or explicitly asks to inspect or run an RHTV canvas → read `{baseDir}/references/rhtv-canvas.md`. RHTV canvas IDs are not AI Application webappIds; never route these links to `runninghub_app.py`.
+
+## Local Capability Catalog
+
+When the user asks to browse, compare, or inspect all supported capabilities in a visual interface, start `python3 {baseDir}/scripts/catalog_server.py` and open the local address it prints (normally `http://127.0.0.1:8765`; an adjacent free port is selected automatically when needed). The catalog reads the bundled endpoint data and delegates live AI Application requests to `runninghub_app.py`; credentials remain server-side.
 
 ## Script Usage
 

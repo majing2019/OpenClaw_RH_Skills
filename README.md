@@ -97,7 +97,10 @@ runninghub/
 │   ├── runninghub.py               # 标准模型 API 客户端（420 端点）
 │   ├── runninghub_app.py           # AI 应用客户端（自定义 ComfyUI 工作流）
 │   ├── rhtv.py                     # RHTV Canvas 客户端（实验性）
+│   ├── catalog_server.py           # 本地能力与 AI 应用浏览器
 │   └── build_capabilities.py       # 从 models_registry.json 生成 capabilities.json
+├── web/
+│   └── index.html                  # 能力浏览器界面
 ├── references/
 │   └── rhtv-canvas.md              # RHTV 路由、鉴权和安全边界
 └── data/
@@ -135,6 +138,14 @@ runninghub/
 | **取消** | `--cancel TASK_ID` | 取消任务 |
 
 RHTV 使用 `RHTV_ACCESS_TOKEN` 环境变量；不要把访问令牌写入命令行、日志或聊天消息。
+
+### 本地能力浏览器
+
+```bash
+python3 runninghub/scripts/catalog_server.py
+```
+
+然后打开终端打印的本地地址（通常是 `http://127.0.0.1:8765`；若端口被占用会自动选择相邻空闲端口）。标准能力目录无需密钥；实时 AI 应用需要 `RUNNINGHUB_API_KEY`，RHTV 状态使用 `RHTV_ACCESS_TOKEN`。密钥只保留在本地服务进程中，不会发送给网页。
 
 ## 更新能力目录
 
