@@ -46,15 +46,14 @@ class CatalogServerTests(unittest.TestCase):
         self.assertEqual(data["total"], len(data["endpoints"]))
 
     def test_status_never_returns_secrets(self):
-        with patch.dict(os.environ, {"RUNNINGHUB_API_KEY": "secret-key", "RHTV_ACCESS_TOKEN": "secret-token"}):
+        with patch.dict(os.environ, {"RUNNINGHUB_API_KEY": "secret-key"}):
             status, _, body = self.request("/api/status")
         self.assertEqual(status, 200)
         text = body.decode()
         self.assertNotIn("secret-key", text)
-        self.assertNotIn("secret-token", text)
         data = json.loads(text)
         self.assertTrue(data["apiConfigured"])
-        self.assertTrue(data["rhtvConfigured"])
+        self.assertTrue(data["workflowConfigured"])
 
     def test_cover_path_traversal_is_rejected(self):
         status, _, _ = self.request("/api/covers/..%2Fsecret.png")
@@ -70,6 +69,16 @@ class CatalogServerTests(unittest.TestCase):
         self.assertEqual(data["apps"][0]["coverUrl"], "/api/covers/demo.png")
         self.assertNotIn("coverFile", data["apps"][0])
         self.assertIn("runninghub_app.py", " ".join(command.call_args.args[0]))
+
+    def test_workflow_info_delegates_to_official_helper(self):
+        fake = {"workflowId": "1904136902449209346", "nodeCount": 1, "nodes": []}
+        with patch.object(catalog, "run_json_command", return_value=fake) as command:
+            status, _, body = self.request("/api/workflows/1904136902449209346")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["workflowId"], "1904136902449209346")
+        args = command.call_args.args[0]
+        self.assertIn("runninghub_workflow.py", " ".join(args))
+        self.assertEqual(args[-2:], ["--info", "1904136902449209346"])
 
 
 if __name__ == "__main__":

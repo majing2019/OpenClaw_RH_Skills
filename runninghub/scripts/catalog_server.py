@@ -2,8 +2,8 @@
 """Local web catalog for the RunningHub skill.
 
 The server binds to localhost, serves the bundled HTML, and delegates live AI
-Application requests to ``runninghub_app.py``. API keys remain in the process
-environment and are never returned to the browser.
+Application and Workflow API requests to their existing helpers. API keys stay
+in the local process/config and are never returned to the browser.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import argparse
 import errno
 import json
 import mimetypes
-import os
 import subprocess
 import sys
 import time
@@ -27,9 +26,13 @@ SKILL_DIR = SCRIPT_DIR.parent
 HTML_PATH = SKILL_DIR / "web" / "index.html"
 CAPABILITIES_PATH = SKILL_DIR / "data" / "capabilities.json"
 APP_SCRIPT = SCRIPT_DIR / "runninghub_app.py"
+WORKFLOW_SCRIPT = SCRIPT_DIR / "runninghub_workflow.py"
 COVER_DIR = Path("/tmp/openclaw/rh-output/app_covers")
 ALLOWED_COVER_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 APP_SORTS = {"RECOMMEND", "HOTTEST", "NEWEST"}
+
+sys.path.insert(0, str(SCRIPT_DIR))
+from runninghub import resolve_api_key  # noqa: E402
 
 
 class CatalogState:
@@ -114,11 +117,12 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/status":
                 catalog = json.loads(CAPABILITIES_PATH.read_text(encoding="utf-8"))
+                api_configured = bool(resolve_api_key(None))
                 self.send_json({
                     "catalogVersion": catalog.get("version"),
                     "total": catalog.get("total", 0),
-                    "apiConfigured": bool(os.environ.get("RUNNINGHUB_API_KEY", "").strip()),
-                    "rhtvConfigured": bool(os.environ.get("RHTV_ACCESS_TOKEN", "").strip()),
+                    "apiConfigured": api_configured,
+                    "workflowConfigured": api_configured,
                 })
                 return
             if parsed.path == "/api/capabilities":
@@ -140,6 +144,16 @@ class CatalogHandler(BaseHTTPRequestHandler):
                     raise ValueError("Invalid AI Application ID")
                 data = run_json_command(
                     [sys.executable, str(APP_SCRIPT), "--info", webapp_id],
+                    timeout=60,
+                )
+                self.send_json(data)
+                return
+            if parsed.path.startswith("/api/workflows/"):
+                workflow_id = parsed.path.removeprefix("/api/workflows/")
+                if not workflow_id.isdigit():
+                    raise ValueError("Invalid workflow ID")
+                data = run_json_command(
+                    [sys.executable, str(WORKFLOW_SCRIPT), "--info", workflow_id],
                     timeout=60,
                 )
                 self.send_json(data)

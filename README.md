@@ -8,9 +8,9 @@
 
 为 OpenClaw 和 DeepSeek Harness 打造的通用多媒体生成技能，由 [RunningHub](https://www.runninghub.ai) API 驱动。
 
-**420 个标准 API 端点 + 无限 AI 应用 + RHTV Canvas（实验性）**，覆盖图片、视频、音频、3D 模型生成、多模态文本理解、用户创建的 AI 应用，以及 RHTV 画布节点执行。
+**420 个标准 API 端点 + 无限 AI 应用 + ComfyUI 工作流 API**，覆盖图片、视频、音频、3D 模型生成、多模态文本理解、用户创建的 AI 应用，以及导出的 ComfyUI 工作流。
 
-> RHTV Canvas 使用网页账户访问令牌，不使用标准 RunningHub API Key。相关接口并非公开 OpenAPI，兼容性按实验性能力提供。
+> 所有自动化调用统一使用官方 `RUNNINGHUB_API_KEY`。RHTV Canvas 的 `canvasId` 不能直接作为 `webappId` 或 `workflowId`；请先转为 AI 应用或导出工作流 API。
 
 ## 能力一览
 
@@ -22,6 +22,7 @@
 | **3D** | 16 | 文字转 3D、图片转 3D、多图转 3D |
 | **文本** | 52 | 图片理解、视频理解、文本处理 |
 | **AI 应用** | 无限 | 运行任意 RunningHub AI 应用（自定义 ComfyUI 工作流） |
+| **工作流 API** | 无限 | 检查并运行导出的 ComfyUI 工作流，支持覆盖节点参数 |
 
 ## 快速开始
 
@@ -56,7 +57,7 @@
 - *"把这张图放大到 4K"*
 - *"把这张图转成 3D 模型"*
 - *"帮我跑这个 AI 应用 https://www.runninghub.ai/ai-detail/1877265245566922800"*
-- *"查看这个 RHTV 画布 https://rhtv.runninghub.ai/project/canvas/2103485063252774914"*
+- *"检查并运行这个 ComfyUI 工作流，workflowId 是 1904136902449209346"*
 - *"最热门的 AI 应用有哪些？"*
 - *"推荐一些最新的 AI 应用"*
 
@@ -96,13 +97,14 @@ runninghub/
 ├── scripts/
 │   ├── runninghub.py               # 标准模型 API 客户端（420 端点）
 │   ├── runninghub_app.py           # AI 应用客户端（自定义 ComfyUI 工作流）
-│   ├── rhtv.py                     # RHTV Canvas 客户端（实验性）
+│   ├── runninghub_workflow.py      # 官方 ComfyUI 工作流 API 客户端
 │   ├── catalog_server.py           # 本地能力与 AI 应用浏览器
 │   └── build_capabilities.py       # 从 models_registry.json 生成 capabilities.json
 ├── web/
 │   └── index.html                  # 能力浏览器界面
 ├── references/
-│   └── rhtv-canvas.md              # RHTV 路由、鉴权和安全边界
+│   ├── workflow-api.md             # 工作流检查、参数覆盖与执行
+│   └── rhtv-canvas.md              # RHTV 向官方 API 的迁移说明
 └── data/
     └── capabilities.json           # 完整端点目录（自动生成）
 ```
@@ -128,16 +130,15 @@ runninghub/
 | **节点** | `--info WEBAPP_ID` | 查看 AI 应用的可修改节点 |
 | **执行** | `--run WEBAPP_ID --node ... --file ... -o /tmp/out` | 运行 AI 应用 |
 
-### RHTV Canvas（rhtv.py，实验性）
+### ComfyUI 工作流 API（runninghub_workflow.py）
 
 | 模式 | 命令 | 用途 |
 |------|------|------|
-| **画布信息** | `--info CANVAS_URL_OR_ID` | 读取画布和节点摘要 |
-| **运行节点** | `--run-node CANVAS_URL_OR_ID NODE_ID --set ...` | 覆盖参数并运行一个节点 |
-| **状态** | `--status TASK_ID` / `--wait TASK_ID` | 查询或等待任务 |
-| **取消** | `--cancel TASK_ID` | 取消任务 |
+| **工作流信息** | `--info WORKFLOW_ID` | 获取工作流节点、字段与默认值 |
+| **运行** | `--run WORKFLOW_ID --node ... --file ... -o /tmp/out` | 覆盖参数并运行工作流 |
+| **实例规格** | `--instance-type default\|plus\|ultra` | 选择官方工作流执行规格 |
 
-RHTV 使用 `RHTV_ACCESS_TOKEN` 环境变量；不要把访问令牌写入命令行、日志或聊天消息。
+工作流与 AI 应用均使用 `RUNNINGHUB_API_KEY`。在工作流编辑器中选择“导出工作流 API”以获得 `workflowId`；RHTV 的 `canvasId` 不能直接调用。
 
 ### 本地能力浏览器
 
@@ -145,7 +146,7 @@ RHTV 使用 `RHTV_ACCESS_TOKEN` 环境变量；不要把访问令牌写入命令
 python3 runninghub/scripts/catalog_server.py
 ```
 
-然后打开终端打印的本地地址（通常是 `http://127.0.0.1:8765`；若端口被占用会自动选择相邻空闲端口）。标准能力目录无需密钥；实时 AI 应用需要 `RUNNINGHUB_API_KEY`，RHTV 状态使用 `RHTV_ACCESS_TOKEN`。密钥只保留在本地服务进程中，不会发送给网页。
+然后打开终端打印的本地地址（通常是 `http://127.0.0.1:8765`；若端口被占用会自动选择相邻空闲端口）。标准能力目录无需密钥；实时 AI 应用和工作流 API 使用 `RUNNINGHUB_API_KEY`。密钥只保留在本地服务进程中，不会发送给网页。
 
 ## 更新能力目录
 
