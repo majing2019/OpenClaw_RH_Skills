@@ -1,6 +1,6 @@
 ---
 name: runninghub
-description: "Generate images, videos, audio, and 3D models via RunningHub API (420 endpoints), run AI Applications by webappId, and inspect or run exported ComfyUI workflows by workflowId."
+description: "Generate images, videos, audio, and 3D models via RunningHub API (420 endpoints), run AI Applications, inspect exported ComfyUI workflows, and browse the live public RHTV workflow catalog."
 metadata:
   {
     "openclaw":
@@ -18,6 +18,7 @@ metadata:
 Standard API Script: `python3 {baseDir}/scripts/runninghub.py`
 AI App Script: `python3 {baseDir}/scripts/runninghub_app.py`
 Workflow Script: `python3 {baseDir}/scripts/runninghub_workflow.py`
+RHTV Catalog Script: `python3 {baseDir}/scripts/rhtv_catalog.py`
 Capability Catalog: `python3 {baseDir}/scripts/catalog_server.py`
 Data: `{baseDir}/data/capabilities.json`
 
@@ -77,7 +78,7 @@ Quick check: `python3 {baseDir}/scripts/runninghub.py --check`
 | **AI Application** | **⚠️ Read `{baseDir}/references/ai-application.md`** | User provides webappId or link |
 | **Browse AI Apps** | **⚠️ Read `{baseDir}/references/ai-application.md`** | "有什么应用" / "最热门" / "最新" / "推荐" |
 | **ComfyUI Workflow API** | **⚠️ Read `{baseDir}/references/workflow-api.md`** | User provides an exported workflowId |
-| **RHTV Canvas migration** | **⚠️ Read `{baseDir}/references/rhtv-canvas.md`** | Explain conversion to AI App or Workflow API |
+| **Browse RHTV workflows / migrate a canvas** | **⚠️ Read `{baseDir}/references/rhtv-canvas.md`** | Live read-only discovery; execution requires AI App or Workflow API |
 | **Browse capabilities locally** | `python3 {baseDir}/scripts/catalog_server.py` | Open the local address printed by the server |
 
 ## AI Application
@@ -90,13 +91,13 @@ Read `{baseDir}/references/ai-application.md` and follow its complete flow.
 
 When the user provides an exported RunningHub `workflowId` or explicitly asks to run a ComfyUI workflow through the official API → read `{baseDir}/references/workflow-api.md`. Use `runninghub_workflow.py`, not the AI Application client.
 
-## RHTV Canvas Migration
+## RHTV Catalog and Canvas Migration
 
-When the user pastes an `rhtv.runninghub.ai/project/canvas/<canvasId>` link or asks to automate an RHTV canvas → read `{baseDir}/references/rhtv-canvas.md`. Do not call private RHTV endpoints. A canvasId is neither a webappId nor a workflowId; guide the user to an official AI Application or exported ComfyUI workflow instead.
+When the user asks to browse RHTV workflows, pastes an `rhtv.runninghub.ai/project/canvas/<canvasId>` link, or asks to automate an RHTV canvas → read `{baseDir}/references/rhtv-canvas.md`. Use `rhtv_catalog.py` only for live, read-only discovery. Do not call private RHTV endpoints. A public catalog ID or canvasId is neither a webappId nor a workflowId; execution still requires an official AI Application or exported ComfyUI workflow.
 
 ## Local Capability Catalog
 
-When the user asks to browse, compare, or inspect all supported capabilities in a visual interface, start `python3 {baseDir}/scripts/catalog_server.py` and open the local address it prints (normally `http://127.0.0.1:8765`; an adjacent free port is selected automatically when needed). The catalog reads the bundled endpoint data and delegates live AI Application requests to `runninghub_app.py`; credentials remain server-side.
+When the user asks to browse, compare, or inspect all supported capabilities in a visual interface, start `python3 {baseDir}/scripts/catalog_server.py` and open the local address it prints (normally `http://127.0.0.1:8765`; an adjacent free port is selected automatically when needed). The page reads the bundled standard capabilities, delegates live AI Application requests to `runninghub_app.py`, and fetches every public RHTV workflow through the read-only catalog helper. Credentials remain server-side; browsing RHTV does not require a login token.
 
 ## Script Usage
 

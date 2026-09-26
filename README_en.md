@@ -6,7 +6,7 @@
 >
 > Same standard `SKILL.md` as [OpenClaw](https://github.com/openclaw/openclaw). Install and update the same way.
 
-An OpenClaw and DeepSeek Harness skill that brings multimedia generation capabilities — including image, video, audio, 3D, and text — to conversational AI, powered by 420 [RunningHub](https://www.runninghub.cn) API endpoints. Built with zero external dependencies (pure Python 3 + curl), it supports standard model APIs, AI Applications, and exported ComfyUI workflows through the official Workflow API.
+An OpenClaw and DeepSeek Harness skill that brings multimedia generation capabilities — including image, video, audio, 3D, and text — to conversational AI, powered by 420 [RunningHub](https://www.runninghub.cn) API endpoints. Built with zero external dependencies (pure Python 3 + curl), it supports standard model APIs, AI Applications, exported ComfyUI workflows, and read-only discovery of the live public RHTV workflow catalog.
 
 ## Capabilities
 
@@ -19,6 +19,7 @@ An OpenClaw and DeepSeek Harness skill that brings multimedia generation capabil
 | **Text** | 52 | image-to-text, video-to-text, text-to-text |
 | **AI Apps** | Unlimited | Run any RunningHub AI Application (custom ComfyUI workflow) |
 | **Workflow API** | Unlimited | Inspect and run exported ComfyUI workflows with node overrides |
+| **RHTV** | Live | Browse all public RHTV workflows and compact node metadata without a login token (read-only) |
 
 ## Quick Start
 
@@ -94,13 +95,14 @@ runninghub/
 │   ├── runninghub.py               # Standard model API client (420 endpoints)
 │   ├── runninghub_app.py           # AI Application client (custom ComfyUI workflows)
 │   ├── runninghub_workflow.py      # Official ComfyUI Workflow API client
-│   ├── catalog_server.py           # Local capabilities and AI App browser
+│   ├── rhtv_catalog.py             # Live public RHTV workflow catalog (read-only)
+│   ├── catalog_server.py           # Local capabilities, AI App, and RHTV browser
 │   └── build_capabilities.py       # Generates capabilities.json from models_registry.json
 ├── web/
 │   └── index.html                  # Capability catalog interface
 ├── references/
 │   ├── workflow-api.md             # Workflow inspection, overrides, and execution
-│   └── rhtv-canvas.md              # Migration from RHTV to official APIs
+│   └── rhtv-canvas.md              # RHTV discovery and migration to official APIs
 └── data/
     └── capabilities.json           # Full endpoint catalog (auto-generated)
 ```
@@ -136,9 +138,13 @@ runninghub/
 
 AI Applications and workflows both use `RUNNINGHUB_API_KEY`. Export the Workflow API from the workflow editor to obtain a `workflowId`; an RHTV `canvasId` cannot be used directly.
 
+### Live RHTV catalog (rhtv_catalog.py)
+
+Use `--list` to retrieve every public workflow and `--info RHTV_CATALOG_ID` for compact node details. Discovery is read-only and needs no login token; neither a catalog ID nor a `canvasId` is an execution ID.
+
 ### Local capability browser
 
-Run `python3 runninghub/scripts/catalog_server.py`, then open the local address it prints (normally `http://127.0.0.1:8765`; a nearby free port is selected automatically if needed). The standard catalog works without credentials. Live AI Apps and the Workflow API use `RUNNINGHUB_API_KEY`. Secrets stay in the local server process and are never returned to the page.
+Run `python3 runninghub/scripts/catalog_server.py`, then open the local address it prints (normally `http://127.0.0.1:8765`; a nearby free port is selected automatically if needed). The page has Standard Capabilities, live AI Apps, and RHTV tabs; opening RHTV fetches and lists every public workflow. Standard and RHTV browsing need no credentials. AI Apps use `RUNNINGHUB_API_KEY`, which stays in the local process and is never returned to the page.
 
 ## Updating Capabilities
 

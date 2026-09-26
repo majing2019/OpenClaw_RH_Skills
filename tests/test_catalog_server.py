@@ -80,6 +80,36 @@ class CatalogServerTests(unittest.TestCase):
         self.assertIn("runninghub_workflow.py", " ".join(args))
         self.assertEqual(args[-2:], ["--info", "1904136902449209346"])
 
+    def test_rhtv_catalog_delegates_to_live_read_only_helper(self):
+        fake = {"source": "RHTV live catalog", "total": 2, "count": 2, "workflows": []}
+        with patch.object(catalog, "run_json_command", return_value=fake) as command:
+            catalog.STATE.rhtv_cache = None
+            status, _, body = self.request("/api/rhtv/workflows")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["total"], 2)
+        self.assertIn("rhtv_catalog.py", " ".join(command.call_args.args[0]))
+        self.assertEqual(command.call_args.args[0][-1], "--list")
+
+    def test_rhtv_refresh_bypasses_catalog_cache(self):
+        old = {"total": 1, "count": 1, "workflows": []}
+        fresh = {"total": 2, "count": 2, "workflows": []}
+        catalog.STATE.rhtv_cache = (catalog.time.monotonic(), old)
+        with patch.object(catalog, "run_json_command", return_value=fresh) as command:
+            status, _, body = self.request("/api/rhtv/workflows?refresh=1")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["total"], 2)
+        command.assert_called_once()
+
+    def test_rhtv_detail_validates_and_delegates(self):
+        fake = {"id": "353", "name": "Demo", "nodes": []}
+        with patch.object(catalog, "run_json_command", return_value=fake) as command:
+            status, _, body = self.request("/api/rhtv/workflows/353")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["id"], "353")
+        self.assertEqual(command.call_args.args[0][-2:], ["--info", "353"])
+        status, _, _ = self.request("/api/rhtv/workflows/not-a-number")
+        self.assertEqual(status, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

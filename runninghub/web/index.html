@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="浏览 RunningHub Skill 的标准能力、AI 应用与 ComfyUI 工作流 API。">
+  <meta name="description" content="浏览 RunningHub Skill 的标准能力、AI 应用与实时 RHTV 工作流。">
   <title>RunningHub 能力浏览器</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff6b35'/%3E%3Cpath d='M8 9h9a6 6 0 0 1 0 12h-3l5 5h-5l-6-7h9a2 2 0 1 0 0-4H8z' fill='white'/%3E%3C/svg%3E">
   <style>
@@ -117,20 +117,18 @@
     .seg.active { color: #071018; background: var(--orange); border-color: var(--orange); font-weight: 800; }
     .app-card { padding: 0; overflow: hidden; }
     .cover { aspect-ratio: 16/9; background: #132431; overflow: hidden; border-bottom: 1px solid var(--line); }
-    .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cover img, .cover video { width: 100%; height: 100%; object-fit: cover; display: block; }
     .cover-fallback { height: 100%; display: grid; place-items: center; color: #6f8798; font-weight: 800; letter-spacing: .08em; }
     .app-copy { padding: 15px; }
     .app-copy p { color: var(--muted); margin: 8px 0 0; font-size: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
     .pager { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 18px; }
-    .workflow-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 14px; }
-    .workflow-inspector { display: grid; grid-template-columns: 1fr auto; gap: 9px; margin-top: 14px; }
-    .feature-panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 20px; }
-    .feature-panel h2, .feature-panel h3 { margin: 0 0 12px; }
-    .feature-list { display: grid; gap: 9px; }
-    .feature-item { display: grid; grid-template-columns: 34px 1fr; gap: 11px; padding: 12px; border-radius: 12px; background: #0a151e; border: 1px solid #1f3140; }
-    .feature-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; background: rgba(255,107,53,.14); color: var(--orange); font-weight: 900; }
-    .feature-item strong { display: block; }
-    .feature-item span { color: var(--muted); font-size: 14px; }
+    .rhtv-toolbar { margin-top: 14px; grid-template-columns: minmax(220px, 1.7fr) minmax(150px, .7fr) auto; }
+    .rhtv-card { padding: 0; overflow: hidden; }
+    .rhtv-card .cover { position: relative; }
+    .preview-badge { position: absolute; right: 9px; top: 9px; padding: 3px 8px; border-radius: 999px; background: rgba(3, 11, 17, .82); border: 1px solid rgba(255,255,255,.18); color: #dcebf5; font-size: 11px; }
+    .rhtv-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; color: var(--muted); font-size: 12px; }
+    .detail-preview { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: #07121b; margin-bottom: 16px; }
+    .detail-preview img, .detail-preview video { width: 100%; max-height: 420px; object-fit: contain; display: block; }
     pre { overflow: auto; padding: 15px; border-radius: 12px; background: #050c12; border: 1px solid var(--line); color: #b9f5e4; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
     dialog { width: min(760px, calc(100% - 24px)); max-height: min(84vh, 900px); padding: 0; color: var(--text); background: var(--panel); border: 1px solid #344a5c; border-radius: 18px; box-shadow: 0 30px 90px rgba(0,0,0,.6); }
     dialog::backdrop { background: rgba(0, 5, 10, .76); backdrop-filter: blur(5px); }
@@ -151,7 +149,7 @@
       .status-row { justify-content: flex-start; }
       .toolbar { grid-template-columns: 1fr 1fr; position: static; }
       .field { grid-column: 1 / -1; }
-      .workflow-grid { grid-template-columns: 1fr; }
+      .rhtv-toolbar { grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 560px) {
       .shell { padding: 14px; }
@@ -160,7 +158,7 @@
       .cards { grid-template-columns: 1fr; }
       .notice { align-items: flex-start; flex-direction: column; }
       .param { grid-template-columns: 1fr; gap: 4px; }
-      .workflow-inspector { grid-template-columns: 1fr; }
+      .rhtv-toolbar { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -169,19 +167,19 @@
     <header>
       <div class="brand">
         <div class="mark" aria-hidden="true">RH</div>
-        <div><h1>RunningHub 能力浏览器</h1><p>标准能力、AI 应用与 ComfyUI 工作流 API，一处查清。</p></div>
+        <div><h1>RunningHub 能力浏览器</h1><p>标准能力、AI 应用与 RHTV 实时工作流，一处查清。</p></div>
       </div>
       <div class="status-row" aria-label="连接状态">
         <span class="status" id="catalogStatus"><span class="dot"></span><span>能力目录载入中</span></span>
         <span class="status" id="apiStatus"><span class="dot"></span><span>AI 应用未检查</span></span>
-        <span class="status" id="workflowStatus"><span class="dot"></span><span>工作流 API 未检查</span></span>
+        <span class="status" id="rhtvStatus"><span class="dot"></span><span>RHTV 实时目录待加载</span></span>
       </div>
     </header>
 
     <nav class="tabs" aria-label="功能区域" role="tablist">
       <button class="tab" role="tab" aria-selected="true" aria-controls="capabilities" data-tab="capabilities">标准能力</button>
       <button class="tab" role="tab" aria-selected="false" aria-controls="apps" data-tab="apps">AI 应用</button>
-      <button class="tab" role="tab" aria-selected="false" aria-controls="workflows" data-tab="workflows">工作流 API</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="rhtv" data-tab="rhtv">RHTV</button>
     </nav>
 
     <section class="view" id="capabilities" role="tabpanel">
@@ -205,33 +203,18 @@
       <div class="pager" id="appPager" hidden><button class="ghost" id="prevPage">上一页</button><span id="pageLabel"></span><button class="ghost" id="nextPage">下一页</button></div>
     </section>
 
-    <section class="view" id="workflows" role="tabpanel" hidden>
-      <div class="workflow-grid">
-        <article class="feature-panel">
-          <h2>ComfyUI 工作流 API</h2>
-          <div class="feature-list">
-            <div class="feature-item"><div class="feature-icon">01</div><div><strong>官方 API Key</strong><span>AI 应用与工作流共用 RUNNINGHUB_API_KEY，不再依赖短期网页令牌。</span></div></div>
-            <div class="feature-item"><div class="feature-icon">02</div><div><strong>检查工作流节点</strong><span>通过 workflowId 获取导出的 API 格式，展示节点、字段和默认值。</span></div></div>
-            <div class="feature-item"><div class="feature-icon">03</div><div><strong>覆盖参数并运行</strong><span>通过 nodeInfoList 修改提示词、种子、媒体输入和其他节点参数。</span></div></div>
-            <div class="feature-item"><div class="feature-icon">04</div><div><strong>RHTV 迁移边界</strong><span>canvasId 不能直接调用；需先转为 AI 应用或导出的 ComfyUI 工作流。</span></div></div>
-          </div>
-        </article>
-        <aside class="feature-panel">
-          <h3>命令示例</h3>
-          <pre>python3 scripts/runninghub_workflow.py \
-  --info WORKFLOW_ID
-
-python3 scripts/runninghub_workflow.py \
-  --run WORKFLOW_ID \
-  --node '6:text=新的提示词' \
-  -o /tmp/openclaw/rh-output/result.png</pre>
-          <div class="notice" style="margin-top:14px"><div><strong id="workflowAuthTitle">鉴权状态检查中</strong><span id="workflowAuthText">工作流 API 使用标准 RunningHub API Key。</span></div></div>
-          <div class="workflow-inspector">
-            <input id="workflowId" inputmode="numeric" pattern="[0-9]*" placeholder="输入 workflowId" aria-label="工作流 ID">
-            <button class="primary" id="inspectWorkflow">读取节点</button>
-          </div>
-        </aside>
+    <section class="view" id="rhtv" role="tabpanel" hidden>
+      <div class="notice">
+        <div><strong>RHTV 实时工作流</strong><span>从 RunningHub 实时读取公开目录；只读浏览，无需登录令牌。</span></div>
+        <button class="primary" id="loadRhtv">刷新目录</button>
       </div>
+      <div class="toolbar rhtv-toolbar">
+        <label class="field"><span class="search-icon" aria-hidden="true">⌕</span><input id="rhtvSearch" type="search" placeholder="搜索工作流、说明、模型或输出类型" aria-label="搜索 RHTV 工作流"></label>
+        <label><span hidden>输出类型</span><select id="rhtvType" aria-label="RHTV 输出类型"><option value="">全部输出类型</option><option value="image">图片</option><option value="video">视频</option><option value="audio">音频</option><option value="string">文本</option><option value="3d">3D</option></select></label>
+        <button class="ghost" id="resetRhtv">重置</button>
+      </div>
+      <div class="summary"><h2>全部 RHTV 工作流</h2><p id="rhtvSummary">切换到本页后实时加载…</p></div>
+      <div class="cards" id="rhtvCards" aria-live="polite"></div>
     </section>
   </main>
 
@@ -241,7 +224,7 @@ python3 scripts/runninghub_workflow.py \
   </dialog>
 
   <script>
-    const state = { capabilities: [], filtered: [], status: null, appSort: 'RECOMMEND', appPage: 1, appData: null };
+    const state = { capabilities: [], filtered: [], status: null, appSort: 'RECOMMEND', appPage: 1, appData: null, rhtvData: null, rhtvFiltered: [] };
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => [...document.querySelectorAll(selector)];
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -266,12 +249,9 @@ python3 scripts/runninghub_workflow.py \
         state.capabilities = catalog.endpoints || [];
         setStatus($('#catalogStatus'), true, `${catalog.total || state.capabilities.length} 项 · ${catalog.version || '本地目录'}`);
         setStatus($('#apiStatus'), status.apiConfigured, status.apiConfigured ? 'AI 应用已连接' : 'AI 应用未配置');
-        setStatus($('#workflowStatus'), status.workflowConfigured, status.workflowConfigured ? '工作流 API 已连接' : '工作流 API 未配置');
+        setStatus($('#rhtvStatus'), false, 'RHTV 实时目录待加载');
         $('#appNoticeText').textContent = status.apiConfigured ? '已检测到本地 API Key，可加载 RunningHub 当前公开应用。' : '需要在启动服务前设置 RUNNINGHUB_API_KEY；密钥不会传给网页。';
         $('#loadApps').disabled = !status.apiConfigured;
-        $('#workflowAuthTitle').textContent = status.workflowConfigured ? '工作流 API 已就绪' : '尚未配置 API Key';
-        $('#workflowAuthText').textContent = status.workflowConfigured ? '本地服务检测到 RUNNINGHUB_API_KEY，可检查并运行导出的 ComfyUI 工作流。' : '设置 RUNNINGHUB_API_KEY 后即可使用 AI 应用与工作流 API。';
-        $('#inspectWorkflow').disabled = !status.workflowConfigured;
         populateFilters();
         applyFilters();
       } catch (error) {
@@ -393,27 +373,89 @@ python3 scripts/runninghub_workflow.py \
       }
     }
 
-    async function inspectWorkflow() {
-      const workflowId = $('#workflowId').value.trim();
-      if (!/^\d+$/.test(workflowId)) {
-        $('#detailTitle').textContent = 'workflowId 无效';
-        $('#detailSub').textContent = '请输入导出工作流 API 后获得的数字 ID';
-        $('#detailBody').innerHTML = '<div class="empty">RHTV canvasId、AI 应用 webappId 和 workflowId 不能混用。</div>';
-        $('#detailDialog').showModal();
+    async function loadRhtv(force = false) {
+      $('#rhtvCards').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+      $('#rhtvSummary').textContent = force ? '正在刷新 RunningHub 实时目录…' : '正在读取 RunningHub 实时目录…';
+      $('#loadRhtv').disabled = true;
+      try {
+        state.rhtvData = await fetchJson(`/api/rhtv/workflows${force ? '?refresh=1' : ''}`);
+        applyRhtvFilters();
+        setStatus($('#rhtvStatus'), true, `RHTV ${state.rhtvData.total || state.rhtvData.count || 0} 个实时工作流`);
+      } catch (error) {
+        $('#rhtvCards').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+        $('#rhtvSummary').textContent = '实时目录加载失败';
+        setStatus($('#rhtvStatus'), false, 'RHTV 目录加载失败');
+      } finally {
+        $('#loadRhtv').disabled = false;
+      }
+    }
+
+    function applyRhtvFilters() {
+      if (!state.rhtvData) return;
+      const query = $('#rhtvSearch').value.trim().toLowerCase();
+      const type = $('#rhtvType').value;
+      state.rhtvFiltered = (state.rhtvData.workflows || []).filter(item => {
+        const haystack = [item.name, item.description, ...(item.models || []), ...(item.outputTypes || [])].join(' ').toLowerCase();
+        return (!query || haystack.includes(query)) && (!type || (item.outputTypes || []).includes(type));
+      });
+      renderRhtv();
+    }
+
+    function rhtvPreview(item, detail = false) {
+      if (!item.thumbnail) return '<div class="cover-fallback">RHTV</div>';
+      if (item.previewType === 'video') {
+        return `<video ${detail ? 'src' : 'data-preview-src'}="${escapeHtml(item.thumbnail)}" muted loop playsinline ${detail ? 'controls autoplay' : 'preload="none"'}></video>`;
+      }
+      if (item.previewType === 'image') return `<img src="${escapeHtml(item.thumbnail)}" alt="" loading="lazy">`;
+      return '<div class="cover-fallback">RHTV</div>';
+    }
+
+    function renderRhtv() {
+      const total = state.rhtvData?.total || state.rhtvData?.count || 0;
+      $('#rhtvSummary').textContent = `显示 ${state.rhtvFiltered.length} / ${total} 项 · 实时公开目录`;
+      if (!state.rhtvFiltered.length) {
+        $('#rhtvCards').innerHTML = '<div class="empty">没有匹配的 RHTV 工作流，试试更短的关键词或重置筛选。</div>';
         return;
       }
-      $('#detailTitle').textContent = 'ComfyUI 工作流';
-      $('#detailSub').textContent = '正在读取节点…';
+      $('#rhtvCards').innerHTML = state.rhtvFiltered.map((item, index) => `
+        <article class="card rhtv-card" tabindex="0" data-rhtv-index="${index}">
+          <div class="cover">${rhtvPreview(item)}${item.previewType === 'video' ? '<span class="preview-badge">悬停预览</span>' : ''}</div>
+          <div class="app-copy">
+            <div class="card-head"><h3>${escapeHtml(item.name || '未命名工作流')}</h3><span class="count">#${escapeHtml(item.id)}</span></div>
+            <p>${escapeHtml(item.description || '暂无说明')}</p>
+            <div class="pills" style="margin-top:12px">${(item.outputTypes || []).map(type => `<span class="pill type ${escapeHtml(type)}">${escapeHtml(typeNames[type] || type)}</span>`).join('') || '<span class="pill">未识别输出</span>'}${(item.models || []).slice(0,2).map(model => `<span class="pill">${escapeHtml(model)}</span>`).join('')}</div>
+            <div class="rhtv-meta"><span>${item.nodeCount || 0} 节点 · ${item.edgeCount || 0} 连线</span><span>${escapeHtml(item.updateTime || '')}</span></div>
+          </div>
+        </article>`).join('');
+      $$('[data-rhtv-index]').forEach(card => {
+        const item = state.rhtvFiltered[Number(card.dataset.rhtvIndex)];
+        const video = card.querySelector('video[data-preview-src]');
+        if (video) {
+          card.addEventListener('mouseenter', () => { if (!video.src) video.src = video.dataset.previewSrc; video.play().catch(() => {}); });
+          card.addEventListener('mouseleave', () => video.pause());
+        }
+        const open = () => openRhtv(item);
+        card.addEventListener('click', open);
+        card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
+      });
+    }
+
+    async function openRhtv(item) {
+      $('#detailTitle').textContent = item.name || 'RHTV 工作流';
+      $('#detailSub').textContent = `RHTV 公开目录 #${item.id} · 正在读取节点…`;
       $('#detailBody').innerHTML = '<div class="skeleton"></div>';
       $('#detailDialog').showModal();
       try {
-        const data = await fetchJson(`/api/workflows/${workflowId}`);
-        $('#detailTitle').textContent = `工作流 ${workflowId}`;
-        $('#detailSub').textContent = `${data.nodeCount || 0} 个节点`;
-        $('#detailBody').innerHTML = `<div class="params">${(data.nodes || []).map(node => `
-          <div class="param"><code>${escapeHtml(node.title || node.nodeName || node.nodeId)}</code><small>${escapeHtml(node.nodeName || '')}<br>${(node.fields || []).filter(field => field.modifiable).map(field => `${escapeHtml(field.fieldName)}: ${escapeHtml(JSON.stringify(field.fieldValue))}`).join('<br>') || '没有可直接修改的字段'}</small><span>${escapeHtml(node.nodeId)}</span></div>`).join('') || '<div class="empty">工作流中没有可显示的节点。</div>'}</div>`;
+        const data = await fetchJson(`/api/rhtv/workflows/${item.id}`);
+        $('#detailSub').textContent = `RHTV 公开目录 #${data.id} · ${data.nodeCount || 0} 个节点 · 只读浏览`;
+        $('#detailBody').innerHTML = `
+          ${data.thumbnail ? `<div class="detail-preview">${rhtvPreview(data, true)}</div>` : ''}
+          <div class="pills">${(data.outputTypes || []).map(type => `<span class="pill type ${escapeHtml(type)}">${escapeHtml(typeNames[type] || type)}</span>`).join('')}${(data.models || []).map(model => `<span class="pill">${escapeHtml(model)}</span>`).join('')}</div>
+          ${data.description ? `<p style="color:var(--muted)">${escapeHtml(data.description)}</p>` : ''}
+          <div class="params">${(data.nodes || []).map(node => `
+            <div class="param"><code>${escapeHtml(node.label || node.type || node.id)}</code><small>${escapeHtml([node.type, node.subType, node.modelCode].filter(Boolean).join(' · '))}</small><span>${escapeHtml(node.id)}</span></div>`).join('') || '<div class="empty">没有可显示的节点。</div>'}</div>`;
       } catch (error) {
-        $('#detailSub').textContent = '工作流读取失败';
+        $('#detailSub').textContent = '工作流详情读取失败';
         $('#detailBody').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
       }
     }
@@ -422,14 +464,17 @@ python3 scripts/runninghub_workflow.py \
       $$('.tab').forEach(item => item.setAttribute('aria-selected', String(item === tab)));
       $$('.view').forEach(view => view.hidden = view.id !== tab.dataset.tab);
       if (tab.dataset.tab === 'apps' && state.status?.apiConfigured && !state.appData) loadApps();
+      if (tab.dataset.tab === 'rhtv' && !state.rhtvData) loadRhtv();
     }));
     ['input','change'].forEach(event => $('#search').addEventListener(event, applyFilters));
     $('#typeFilter').addEventListener('change', applyFilters);
     $('#taskFilter').addEventListener('change', applyFilters);
     $('#resetFilters').addEventListener('click', () => { $('#search').value=''; $('#typeFilter').value=''; $('#taskFilter').value=''; applyFilters(); });
     $('#loadApps').addEventListener('click', loadApps);
-    $('#inspectWorkflow').addEventListener('click', inspectWorkflow);
-    $('#workflowId').addEventListener('keydown', event => { if (event.key === 'Enter') inspectWorkflow(); });
+    $('#loadRhtv').addEventListener('click', () => loadRhtv(true));
+    $('#rhtvSearch').addEventListener('input', applyRhtvFilters);
+    $('#rhtvType').addEventListener('change', applyRhtvFilters);
+    $('#resetRhtv').addEventListener('click', () => { $('#rhtvSearch').value=''; $('#rhtvType').value=''; applyRhtvFilters(); });
     $$('.seg').forEach(button => button.addEventListener('click', () => { $$('.seg').forEach(item => item.classList.toggle('active', item === button)); state.appSort = button.dataset.sort; state.appPage = 1; loadApps(); }));
     $('#prevPage').addEventListener('click', () => { if (state.appPage > 1) { state.appPage--; loadApps(); } });
     $('#nextPage').addEventListener('click', () => { state.appPage++; loadApps(); });

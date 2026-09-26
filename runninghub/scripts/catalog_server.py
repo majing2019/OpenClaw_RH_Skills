@@ -2,8 +2,9 @@
 """Local web catalog for the RunningHub skill.
 
 The server binds to localhost, serves the bundled HTML, and delegates live AI
-Application and Workflow API requests to their existing helpers. API keys stay
-in the local process/config and are never returned to the browser.
+Application requests to its existing helper, and reads the public RHTV
+workflow catalog through a separate read-only helper. API keys stay in the
+local process/config and are never returned to the browser.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ HTML_PATH = SKILL_DIR / "web" / "index.html"
 CAPABILITIES_PATH = SKILL_DIR / "data" / "capabilities.json"
 APP_SCRIPT = SCRIPT_DIR / "runninghub_app.py"
 WORKFLOW_SCRIPT = SCRIPT_DIR / "runninghub_workflow.py"
+RHTV_CATALOG_SCRIPT = SCRIPT_DIR / "rhtv_catalog.py"
 COVER_DIR = Path("/tmp/openclaw/rh-output/app_covers")
 ALLOWED_COVER_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 APP_SORTS = {"RECOMMEND", "HOTTEST", "NEWEST"}
@@ -38,6 +40,7 @@ from runninghub import resolve_api_key  # noqa: E402
 class CatalogState:
     def __init__(self):
         self.app_cache: dict[tuple, tuple[float, dict]] = {}
+        self.rhtv_cache: tuple[float, dict] | None = None
 
     def get_apps(self, sort: str, size: int, page: int, days: int) -> dict:
         cache_key = (sort, size, page, days)
@@ -54,6 +57,16 @@ class CatalogState:
             if cover_file:
                 app["coverUrl"] = f"/api/covers/{Path(cover_file).name}"
         self.app_cache[cache_key] = (time.monotonic(), data)
+        return data
+
+    def get_rhtv_workflows(self, force: bool = False) -> dict:
+        if not force and self.rhtv_cache and time.monotonic() - self.rhtv_cache[0] < 60:
+            return self.rhtv_cache[1]
+        data = run_json_command(
+            [sys.executable, str(RHTV_CATALOG_SCRIPT), "--list"],
+            timeout=180,
+        )
+        self.rhtv_cache = (time.monotonic(), data)
         return data
 
 
@@ -155,6 +168,21 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 data = run_json_command(
                     [sys.executable, str(WORKFLOW_SCRIPT), "--info", workflow_id],
                     timeout=60,
+                )
+                self.send_json(data)
+                return
+            if parsed.path == "/api/rhtv/workflows":
+                query = parse_qs(parsed.query)
+                force = query.get("refresh", ["0"])[0] == "1"
+                self.send_json(STATE.get_rhtv_workflows(force=force))
+                return
+            if parsed.path.startswith("/api/rhtv/workflows/"):
+                rhtv_workflow_id = parsed.path.removeprefix("/api/rhtv/workflows/")
+                if not rhtv_workflow_id.isdigit():
+                    raise ValueError("Invalid RHTV workflow ID")
+                data = run_json_command(
+                    [sys.executable, str(RHTV_CATALOG_SCRIPT), "--info", rhtv_workflow_id],
+                    timeout=90,
                 )
                 self.send_json(data)
                 return
