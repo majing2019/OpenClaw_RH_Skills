@@ -99,6 +99,7 @@ class CatalogServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["total"], 2)
         command.assert_called_once()
+        self.assertEqual(command.call_args.args[0][-1], "--sync")
 
     def test_rhtv_detail_validates_and_delegates(self):
         fake = {"id": "353", "name": "Demo", "nodes": []}

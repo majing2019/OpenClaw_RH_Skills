@@ -31,3 +31,7 @@ Thumbs.db
 # Logs
 *.log
 *.tmp
+
+# Runtime catalog databases
+runninghub/data/*.sqlite3
+runninghub/data/*.sqlite3-*

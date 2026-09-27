@@ -129,6 +129,17 @@
     .rhtv-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; color: var(--muted); font-size: 12px; }
     .detail-preview { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: #07121b; margin-bottom: 16px; }
     .detail-preview img, .detail-preview video { width: 100%; max-height: 420px; object-fit: contain; display: block; }
+    .detail-section { margin-top: 18px; }
+    .detail-section h3 { margin: 0 0 9px; font-size: 15px; }
+    .io-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .io-box { padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: #09151e; }
+    .io-box strong { display: block; margin-bottom: 8px; }
+    .io-item { padding: 8px 0; border-top: 1px solid #1d3040; }
+    .io-item:first-of-type { border-top: 0; }
+    .io-item span { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .link-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    .action-link { display: inline-flex; align-items: center; justify-content: center; min-height: 43px; padding: 9px 14px; border-radius: 11px; color: #071018; background: var(--cyan); text-decoration: none; font-weight: 750; }
+    .fine-print { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
     pre { overflow: auto; padding: 15px; border-radius: 12px; background: #050c12; border: 1px solid var(--line); color: #b9f5e4; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
     dialog { width: min(760px, calc(100% - 24px)); max-height: min(84vh, 900px); padding: 0; color: var(--text); background: var(--panel); border: 1px solid #344a5c; border-radius: 18px; box-shadow: 0 30px 90px rgba(0,0,0,.6); }
     dialog::backdrop { background: rgba(0, 5, 10, .76); backdrop-filter: blur(5px); }
@@ -159,6 +170,7 @@
       .notice { align-items: flex-start; flex-direction: column; }
       .param { grid-template-columns: 1fr; gap: 4px; }
       .rhtv-toolbar { grid-template-columns: 1fr; }
+      .io-grid, .link-row { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -205,7 +217,7 @@
 
     <section class="view" id="rhtv" role="tabpanel" hidden>
       <div class="notice">
-        <div><strong>RHTV 实时工作流</strong><span>从 RunningHub 实时读取公开目录；只读浏览，无需登录令牌。</span></div>
+        <div><strong>RHTV 工作流目录</strong><span>公开目录增量保存到本地数据库；刷新时只写入新增或有变化的工作流。</span></div>
         <button class="primary" id="loadRhtv">刷新目录</button>
       </div>
       <div class="toolbar rhtv-toolbar">
@@ -249,11 +261,18 @@
         state.capabilities = catalog.endpoints || [];
         setStatus($('#catalogStatus'), true, `${catalog.total || state.capabilities.length} 项 · ${catalog.version || '本地目录'}`);
         setStatus($('#apiStatus'), status.apiConfigured, status.apiConfigured ? 'AI 应用已连接' : 'AI 应用未配置');
-        setStatus($('#rhtvStatus'), false, 'RHTV 实时目录待加载');
+        setStatus($('#rhtvStatus'), false, 'RHTV 本地目录待加载');
         $('#appNoticeText').textContent = status.apiConfigured ? '已检测到本地 API Key，可加载 RunningHub 当前公开应用。' : '需要在启动服务前设置 RUNNINGHUB_API_KEY；密钥不会传给网页。';
         $('#loadApps').disabled = !status.apiConfigured;
         populateFilters();
         applyFilters();
+        const requestedRhtv = new URLSearchParams(location.search).get('rhtv');
+        if (requestedRhtv && /^\d+$/.test(requestedRhtv)) {
+          activateTab('rhtv');
+          await loadRhtv();
+          const item = (state.rhtvData?.workflows || []).find(entry => entry.id === requestedRhtv) || { id: requestedRhtv, name: 'RHTV 工作流' };
+          await openRhtv(item, false);
+        }
       } catch (error) {
         setStatus($('#catalogStatus'), false, '目录载入失败');
         $('#capCards').innerHTML = `<div class="empty">${escapeHtml(error.message)}<br>请通过 catalog_server.py 打开此页面。</div>`;
@@ -375,12 +394,12 @@
 
     async function loadRhtv(force = false) {
       $('#rhtvCards').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
-      $('#rhtvSummary').textContent = force ? '正在刷新 RunningHub 实时目录…' : '正在读取 RunningHub 实时目录…';
+      $('#rhtvSummary').textContent = force ? '正在比对公开目录并增量更新…' : '正在读取本地目录…';
       $('#loadRhtv').disabled = true;
       try {
         state.rhtvData = await fetchJson(`/api/rhtv/workflows${force ? '?refresh=1' : ''}`);
         applyRhtvFilters();
-        setStatus($('#rhtvStatus'), true, `RHTV ${state.rhtvData.total || state.rhtvData.count || 0} 个实时工作流`);
+        setStatus($('#rhtvStatus'), true, `RHTV ${state.rhtvData.total || state.rhtvData.count || 0} 个已缓存工作流`);
       } catch (error) {
         $('#rhtvCards').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
         $('#rhtvSummary').textContent = '实时目录加载失败';
@@ -395,7 +414,7 @@
       const query = $('#rhtvSearch').value.trim().toLowerCase();
       const type = $('#rhtvType').value;
       state.rhtvFiltered = (state.rhtvData.workflows || []).filter(item => {
-        const haystack = [item.name, item.description, ...(item.models || []), ...(item.outputTypes || [])].join(' ').toLowerCase();
+        const haystack = [item.name, item.description, item.chineseDescription, ...(item.models || []), ...(item.outputTypes || [])].join(' ').toLowerCase();
         return (!query || haystack.includes(query)) && (!type || (item.outputTypes || []).includes(type));
       });
       renderRhtv();
@@ -412,7 +431,9 @@
 
     function renderRhtv() {
       const total = state.rhtvData?.total || state.rhtvData?.count || 0;
-      $('#rhtvSummary').textContent = `显示 ${state.rhtvFiltered.length} / ${total} 项 · 实时公开目录`;
+      const sync = state.rhtvData?.sync;
+      const syncText = sync ? ` · 上次同步：新增 ${sync.created}，更新 ${sync.updated}，未变化 ${sync.unchanged}` : '';
+      $('#rhtvSummary').textContent = `显示 ${state.rhtvFiltered.length} / ${total} 项 · 本地增量目录${syncText}`;
       if (!state.rhtvFiltered.length) {
         $('#rhtvCards').innerHTML = '<div class="empty">没有匹配的 RHTV 工作流，试试更短的关键词或重置筛选。</div>';
         return;
@@ -422,7 +443,7 @@
           <div class="cover">${rhtvPreview(item)}${item.previewType === 'video' ? '<span class="preview-badge">悬停预览</span>' : ''}</div>
           <div class="app-copy">
             <div class="card-head"><h3>${escapeHtml(item.name || '未命名工作流')}</h3><span class="count">#${escapeHtml(item.id)}</span></div>
-            <p>${escapeHtml(item.description || '暂无说明')}</p>
+            <p>${escapeHtml(item.chineseDescription || item.description || '暂无中文说明')}</p>
             <div class="pills" style="margin-top:12px">${(item.outputTypes || []).map(type => `<span class="pill type ${escapeHtml(type)}">${escapeHtml(typeNames[type] || type)}</span>`).join('') || '<span class="pill">未识别输出</span>'}${(item.models || []).slice(0,2).map(model => `<span class="pill">${escapeHtml(model)}</span>`).join('')}</div>
             <div class="rhtv-meta"><span>${item.nodeCount || 0} 节点 · ${item.edgeCount || 0} 连线</span><span>${escapeHtml(item.updateTime || '')}</span></div>
           </div>
@@ -440,29 +461,55 @@
       });
     }
 
-    async function openRhtv(item) {
+    function renderIoItems(items, emptyText) {
+      return items?.length ? items.map(entry => `<div class="io-item"><b>${escapeHtml(entry.label)}</b><span>${escapeHtml(entry.description || '')}</span>${entry.modelCode ? `<span>模型：${escapeHtml(entry.modelCode)}</span>` : ''}</div>`).join('') : `<span class="fine-print">${escapeHtml(emptyText)}</span>`;
+    }
+
+    async function openRhtv(item, updateLocation = true) {
       $('#detailTitle').textContent = item.name || 'RHTV 工作流';
       $('#detailSub').textContent = `RHTV 公开目录 #${item.id} · 正在读取节点…`;
       $('#detailBody').innerHTML = '<div class="skeleton"></div>';
       $('#detailDialog').showModal();
       try {
         const data = await fetchJson(`/api/rhtv/workflows/${item.id}`);
+        if (updateLocation) history.replaceState(null, '', data.detailPath || `/?rhtv=${data.id}`);
+        const detailUrl = new URL(data.detailPath || `/?rhtv=${data.id}`, location.origin).href;
         $('#detailSub').textContent = `RHTV 公开目录 #${data.id} · ${data.nodeCount || 0} 个节点 · 只读浏览`;
         $('#detailBody').innerHTML = `
           ${data.thumbnail ? `<div class="detail-preview">${rhtvPreview(data, true)}</div>` : ''}
           <div class="pills">${(data.outputTypes || []).map(type => `<span class="pill type ${escapeHtml(type)}">${escapeHtml(typeNames[type] || type)}</span>`).join('')}${(data.models || []).map(model => `<span class="pill">${escapeHtml(model)}</span>`).join('')}</div>
-          ${data.description ? `<p style="color:var(--muted)">${escapeHtml(data.description)}</p>` : ''}
-          <div class="params">${(data.nodes || []).map(node => `
-            <div class="param"><code>${escapeHtml(node.label || node.type || node.id)}</code><small>${escapeHtml([node.type, node.subType, node.modelCode].filter(Boolean).join(' · '))}</small><span>${escapeHtml(node.id)}</span></div>`).join('') || '<div class="empty">没有可显示的节点。</div>'}</div>`;
+          <p>${escapeHtml(data.chineseDescription || '暂未生成中文说明。')}</p>
+          ${data.description ? `<p class="fine-print">目录原始说明：${escapeHtml(data.description)}</p>` : ''}
+          <div class="detail-section"><h3>输入与输出</h3><div class="io-grid">
+            <div class="io-box"><strong>输入</strong>${renderIoItems(data.inputs, '未识别到明确的输入节点')}</div>
+            <div class="io-box"><strong>输出</strong>${renderIoItems(data.outputs, '未识别到明确的输出节点')}</div>
+          </div></div>
+          <div class="detail-section"><h3>工作流链接</h3>
+            <div class="link-row"><input id="rhtvDetailLink" value="${escapeHtml(detailUrl)}" readonly aria-label="本地工作流详情链接"><button class="ghost" id="copyRhtvLink">复制详情链接</button></div>
+            <p class="fine-print">这是此目录条目的本地永久链接。RHTV 公共目录没有提供每条模板的永久画布直链；选用模板后，RHTV 会创建新的个人画布。</p>
+            <a class="action-link" style="margin-top:10px" href="${escapeHtml(data.sourceUrl)}" target="_blank" rel="noopener noreferrer">打开官方 RHTV 工作流库</a>
+          </div>
+          <div class="detail-section"><h3>节点结构</h3><div class="params">${(data.nodes || []).map(node => `
+            <div class="param"><code>${escapeHtml(node.label || node.type || node.id)}</code><small>${escapeHtml([node.nodeType, node.subType, node.modelCode].filter(Boolean).join(' · '))}</small><span>${escapeHtml(node.id)}</span></div>`).join('') || '<div class="empty">没有可显示的节点。</div>'}</div></div>`;
+        $('#copyRhtvLink').addEventListener('click', async () => {
+          await navigator.clipboard.writeText(detailUrl);
+          $('#copyRhtvLink').textContent = '已复制';
+        });
       } catch (error) {
         $('#detailSub').textContent = '工作流详情读取失败';
         $('#detailBody').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
       }
     }
 
-    $$('.tab').forEach(tab => tab.addEventListener('click', () => {
+    function activateTab(tabName) {
+      const tab = $(`.tab[data-tab="${tabName}"]`);
+      if (!tab) return;
       $$('.tab').forEach(item => item.setAttribute('aria-selected', String(item === tab)));
-      $$('.view').forEach(view => view.hidden = view.id !== tab.dataset.tab);
+      $$('.view').forEach(view => view.hidden = view.id !== tabName);
+    }
+
+    $$('.tab').forEach(tab => tab.addEventListener('click', () => {
+      activateTab(tab.dataset.tab);
       if (tab.dataset.tab === 'apps' && state.status?.apiConfigured && !state.appData) loadApps();
       if (tab.dataset.tab === 'rhtv' && !state.rhtvData) loadRhtv();
     }));

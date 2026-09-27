@@ -18,7 +18,7 @@ metadata:
 Standard API Script: `python3 {baseDir}/scripts/runninghub.py`
 AI App Script: `python3 {baseDir}/scripts/runninghub_app.py`
 Workflow Script: `python3 {baseDir}/scripts/runninghub_workflow.py`
-RHTV Catalog Script: `python3 {baseDir}/scripts/rhtv_catalog.py`
+RHTV Catalog Script: `python3 {baseDir}/scripts/rhtv_catalog.py` (`--list` reads the cache; `--sync` refreshes it)
 Capability Catalog: `python3 {baseDir}/scripts/catalog_server.py`
 Data: `{baseDir}/data/capabilities.json`
 
@@ -93,11 +93,11 @@ When the user provides an exported RunningHub `workflowId` or explicitly asks to
 
 ## RHTV Catalog and Canvas Migration
 
-When the user asks to browse RHTV workflows, pastes an `rhtv.runninghub.ai/project/canvas/<canvasId>` link, or asks to automate an RHTV canvas → read `{baseDir}/references/rhtv-canvas.md`. Use `rhtv_catalog.py` only for live, read-only discovery. Do not call private RHTV endpoints. A public catalog ID or canvasId is neither a webappId nor a workflowId; execution still requires an official AI Application or exported ComfyUI workflow.
+When the user asks to browse RHTV workflows, pastes an `rhtv.runninghub.ai/project/canvas/<canvasId>` link, or asks to automate an RHTV canvas → read `{baseDir}/references/rhtv-canvas.md`. Use `rhtv_catalog.py` only for read-only discovery. Its SQLite catalog stores normalized Chinese descriptions plus inferred inputs and outputs, and refreshes only new or changed records. Do not call private RHTV endpoints. A public catalog ID or canvasId is neither a webappId nor a workflowId; execution still requires an official AI Application or exported ComfyUI workflow.
 
 ## Local Capability Catalog
 
-When the user asks to browse, compare, or inspect all supported capabilities in a visual interface, start `python3 {baseDir}/scripts/catalog_server.py` and open the local address it prints (normally `http://127.0.0.1:8765`; an adjacent free port is selected automatically when needed). The page reads the bundled standard capabilities, delegates live AI Application requests to `runninghub_app.py`, and fetches every public RHTV workflow through the read-only catalog helper. Credentials remain server-side; browsing RHTV does not require a login token.
+When the user asks to browse, compare, or inspect all supported capabilities in a visual interface, start `python3 {baseDir}/scripts/catalog_server.py` and open the local address it prints (normally `http://127.0.0.1:8765`; an adjacent free port is selected automatically when needed). The page reads the bundled standard capabilities, delegates live AI Application requests to `runninghub_app.py`, and displays the local incremental RHTV catalog. “刷新目录” compares the public directory and writes only new or changed workflows. Each RHTV detail view shows a Chinese graph-derived introduction, inputs, outputs, a shareable local detail link, and the official RHTV library entry. Credentials remain server-side; browsing RHTV does not require a login token.
 
 ## Script Usage
 

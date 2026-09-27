@@ -142,9 +142,9 @@ runninghub/
 
 工作流与 AI 应用均使用 `RUNNINGHUB_API_KEY`。在工作流编辑器中选择“导出工作流 API”以获得 `workflowId`；RHTV 的 `canvasId` 不能直接调用。
 
-### RHTV 实时目录（rhtv_catalog.py）
+### RHTV 增量目录（rhtv_catalog.py）
 
-`--list` 实时列出全部公开工作流，`--info RHTV_CATALOG_ID` 查看节点摘要。目录浏览无需登录令牌且严格只读；目录 ID 和 `canvasId` 均不能直接用于生成。
+`--sync` 读取公开目录并将新增或变化的工作流写入 `runninghub/data/rhtv_catalog.sqlite3`，`--list` 从本地数据库读取，`--info RHTV_CATALOG_ID` 查看中文介绍、输入、输出和节点摘要。目录浏览无需登录令牌且严格只读；目录 ID 和 `canvasId` 均不能直接用于生成。
 
 ### 本地能力浏览器
 
@@ -152,7 +152,7 @@ runninghub/
 python3 runninghub/scripts/catalog_server.py
 ```
 
-然后打开终端打印的本地地址（通常是 `http://127.0.0.1:8765`；若端口被占用会自动选择相邻空闲端口）。页面包含标准能力、实时 AI 应用和 RHTV 三个栏目；切换到 RHTV 会抓取并列出全部公开工作流。标准目录与 RHTV 浏览无需密钥，AI 应用使用 `RUNNINGHUB_API_KEY`。密钥只保留在本地服务进程中，不会发送给网页。
+然后打开终端打印的本地地址（通常是 `http://127.0.0.1:8765`；若端口被占用会自动选择相邻空闲端口）。页面包含标准能力、实时 AI 应用和 RHTV 三个栏目。RHTV 首次打开会建立本地目录；点击“刷新目录”时只写入新增或变化的记录。每个详情页提供中文介绍、输入与输出、本地详情链接和官方工作流库入口。标准目录与 RHTV 浏览无需密钥，AI 应用使用 `RUNNINGHUB_API_KEY`。密钥只保留在本地服务进程中，不会发送给网页。
 
 ## 更新能力目录
 

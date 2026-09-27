@@ -63,7 +63,7 @@ class CatalogState:
         if not force and self.rhtv_cache and time.monotonic() - self.rhtv_cache[0] < 60:
             return self.rhtv_cache[1]
         data = run_json_command(
-            [sys.executable, str(RHTV_CATALOG_SCRIPT), "--list"],
+            [sys.executable, str(RHTV_CATALOG_SCRIPT), "--sync" if force else "--list"],
             timeout=180,
         )
         self.rhtv_cache = (time.monotonic(), data)

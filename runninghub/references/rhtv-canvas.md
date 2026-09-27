@@ -6,20 +6,34 @@ RHTV canvas URLs have the form:
 https://rhtv.runninghub.ai/project/canvas/<canvasId>
 ```
 
-## Live public catalog
+## Incremental public catalog
 
 The skill can browse all public RHTV common workflows without a login token:
 
 ```bash
+python3 {baseDir}/scripts/rhtv_catalog.py --sync
 python3 {baseDir}/scripts/rhtv_catalog.py --list
 python3 {baseDir}/scripts/rhtv_catalog.py --info RHTV_CATALOG_ID
 ```
 
-This is read-only discovery. It uses the public catalog currently consumed by
-the RHTV website, returns compact metadata and node summaries, and never clones
-a workflow, creates a canvas, or submits a paid generation task. The catalog
-interface is not a documented execution API, so treat it as best-effort and
-keep the helper isolated from generation code.
+`--sync` reads the complete public index, compares a stable content hash, and
+writes only new, changed, or reactivated records. `--list` reads the local
+SQLite database and bootstraps it only when empty. The default database is
+`{baseDir}/data/rhtv_catalog.sqlite3`; override it with
+`RHTV_CATALOG_DB_PATH`. Removed remote entries are retained as inactive history.
+
+Every cached record includes a graph-derived Chinese introduction, inferred
+input nodes, inferred output nodes, and a local detail path. Inputs are graph
+nodes without incoming edges; outputs are nodes without outgoing edges. This
+is read-only discovery and never clones a workflow, creates a canvas, or
+submits a paid generation task. The public catalog interface is not a
+documented execution API, so treat it as best-effort and keep the helper
+isolated from generation code.
+
+The public catalog does not expose a permanent canvas URL for each template.
+The local browser therefore provides a stable local detail link for each
+catalog ID and a separate link to the official RHTV template library. RHTV
+creates a new personal canvas only after a user selects a template.
 
 The skill does not call RHTV's private browser-session endpoints. A public
 catalog ID or `canvasId` is not a `webappId` or `workflowId`, so never pass it
