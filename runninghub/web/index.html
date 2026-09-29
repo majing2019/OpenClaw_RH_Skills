@@ -306,6 +306,15 @@
     }
 
     async function init() {
+      if (window.location.protocol === 'file:') {
+        const message = '当前是直接打开的本地 HTML 文件；请通过 http://127.0.0.1:8765 打开，才能读取 API 配置和应用目录。';
+        setStatus($('#catalogStatus'), false, '请通过目录服务打开');
+        setStatus($('#apiStatus'), false, '等待目录服务');
+        $('#appNoticeText').textContent = message;
+        $('#loadApps').disabled = true;
+        $('#capCards').innerHTML = `<div class="empty">${escapeHtml(message)}<br><a href="http://127.0.0.1:8765/">打开 RunningHub 能力浏览器</a></div>`;
+        return;
+      }
       try {
         const [status, catalog] = await Promise.all([fetchJson('/api/status'), fetchJson('/api/capabilities')]);
         state.status = status;
@@ -319,6 +328,9 @@
         applyFilters();
       } catch (error) {
         setStatus($('#catalogStatus'), false, '目录载入失败');
+        setStatus($('#apiStatus'), false, 'API 配置读取失败');
+        $('#appNoticeText').textContent = '无法连接目录服务，请确认已运行 catalog_server.py，并通过 http://127.0.0.1:8765 打开。';
+        $('#loadApps').disabled = true;
         $('#capCards').innerHTML = `<div class="empty">${escapeHtml(error.message)}<br>请通过 catalog_server.py 打开此页面。</div>`;
       }
     }
