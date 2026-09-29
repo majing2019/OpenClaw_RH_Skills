@@ -73,6 +73,8 @@ def connect(path: Path) -> sqlite3.Connection:
         ("purpose", "TEXT NOT NULL DEFAULT ''"),
         ("node_json", "TEXT NOT NULL DEFAULT '[]'"),
         ("detail_error", "TEXT NOT NULL DEFAULT ''"),
+        ("test_inputs", "TEXT NOT NULL DEFAULT '[]'"),
+        ("detail_fetched_at", "TEXT NOT NULL DEFAULT ''"),
     ):
         if name not in columns:
             db.execute(f"ALTER TABLE apps ADD COLUMN {name} {definition}")
