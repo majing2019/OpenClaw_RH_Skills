@@ -239,14 +239,18 @@ def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
 
 
 def get_app(db: sqlite3.Connection, webapp_id: str) -> dict:
-    row = db.execute("SELECT webapp_id,title,description,purpose,cover_file,node_json,detail_error FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
+    row = db.execute("SELECT webapp_id,title,description,purpose,cover_file,node_json,test_inputs,detail_error FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
     if not row:
         return {"webappId": webapp_id, "nodeCount": 0, "nodes": [], "detailError": "该应用尚未进入本地目录缓存"}
     try:
         nodes = json.loads(row["node_json"] or "[]")
     except json.JSONDecodeError:
         nodes = []
-    return {"webappId": row["webapp_id"], "title": row["title"], "description": row["description"], "purpose": row["purpose"], "coverFile": row["cover_file"], "nodeCount": len(nodes), "nodes": nodes, "detailError": row["detail_error"]}
+    try:
+        test_inputs = json.loads(row["test_inputs"] or "[]")
+    except json.JSONDecodeError:
+        test_inputs = []
+    return {"webappId": row["webapp_id"], "title": row["title"], "description": row["description"], "purpose": row["purpose"], "coverFile": row["cover_file"], "nodeCount": len(nodes), "nodes": nodes, "testInputs": test_inputs, "detailError": row["detail_error"]}
 
 
 def main() -> int:
