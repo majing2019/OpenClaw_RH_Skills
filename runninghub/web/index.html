@@ -268,7 +268,11 @@
     }
 
     function appOutputType(app, nodes = []) {
-      const haystack = [app.title, app.description, ...nodes.map(node => node.description || node.fieldName || '')].join(' ').toLowerCase();
+      const normalizedNodes = nodes || [];
+      const fieldTypes = new Set(normalizedNodes.map(node => String(node.fieldType || '').toUpperCase()));
+      const haystack = [app.title, app.description, app.purpose, ...normalizedNodes.map(node => node.description || node.fieldName || '')].join(' ').toLowerCase();
+      if (fieldTypes.has('VIDEO')) return 'video';
+      if (fieldTypes.has('AUDIO')) return 'audio';
       if (/视频|video|动效|短片|动画/.test(haystack)) return 'video';
       if (/音频|audio|语音|配音|音乐/.test(haystack)) return 'audio';
       if (/3d|三维|模型/.test(haystack)) return '3d';
@@ -408,7 +412,7 @@
       $('#appCards').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
       $('#appSummary').textContent = force ? '正在比对当前公开页并增量更新…' : '正在读取本地目录…';
       try {
-        const data = await fetchJson(`/api/apps?size=12&page=${state.appPage}${force ? '&refresh=1' : ''}`);
+        const data = await fetchJson(`/api/apps?size=24&page=${state.appPage}${force ? '&refresh=1' : ''}`);
         state.appData = data;
         renderApps();
         if (data.sync) $('#appSummary').textContent += ` · 新增 ${data.sync.created}，更新 ${data.sync.updated}，未变化 ${data.sync.unchanged}`;
@@ -424,13 +428,13 @@
       const type = $('#appType').value;
       state.appFiltered = (data.apps || []).filter(app => {
         const haystack = [app.title, app.description, app.purpose, ...(app.nodes || []).map(node => node.description || node.fieldName || '')].join(' ').toLowerCase();
-        return (!query || haystack.includes(query)) && (!type || appOutputType(app) === type);
+        return (!query || haystack.includes(query)) && (!type || appOutputType(app, app.nodes || []) === type);
       });
       $('#appSummary').textContent = `显示 ${state.appFiltered.length} / ${data.total || data.apps.length} 个 · 第 ${data.page || state.appPage} 页`;
       $('#appCards').innerHTML = state.appFiltered.length ? state.appFiltered.map((app, index) => `
         <article class="card app-card" tabindex="0" data-app-index="${index}">
           <div class="cover">${appCover(app.coverUrl, app.title)}</div>
-          <div class="app-copy"><div class="card-head"><h3>${escapeHtml(app.title || '未命名应用')}</h3><span class="pill type ${escapeHtml(appOutputType(app))}">${escapeHtml(typeNames[appOutputType(app)] || appOutputType(app))}</span></div><p>${escapeHtml(appDescription(app))}</p><div class="input-summary">点击查看应用公开输入、参数和输出说明</div></div>
+          <div class="app-copy"><div class="card-head"><h3>${escapeHtml(app.title || '未命名应用')}</h3><span class="pill type ${escapeHtml(appOutputType(app, app.nodes || []))}">${escapeHtml(typeNames[appOutputType(app, app.nodes || [])] || appOutputType(app, app.nodes || []))}</span></div><p>${escapeHtml(appDescription(app))}</p><div class="input-summary">点击查看应用公开输入、参数和输出说明</div></div>
         </article>`).join('') : '<div class="empty">当前目录没有可显示的应用。</div>';
       $$('[data-app-index]').forEach(card => {
         const open = () => openApp(state.appFiltered[Number(card.dataset.appIndex)]);
