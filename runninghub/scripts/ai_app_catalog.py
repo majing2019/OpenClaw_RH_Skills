@@ -192,12 +192,11 @@ def sync_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
 
 
 def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int) -> dict:
-    offset = (page - 1) * size
     rows = db.execute("""
       SELECT a.webapp_id, a.title, a.description, a.cover_file, a.cover_url, a.purpose, a.node_json, a.detail_error, p.position
       FROM app_pages p JOIN apps a ON a.webapp_id = p.webapp_id
       WHERE p.sort_name = ? AND p.page = ? ORDER BY p.position LIMIT ? OFFSET ?
-    """, (sort, page, size, offset)).fetchall()
+    """, (sort, page, size, 0)).fetchall()
     latest = db.execute("SELECT remote_total,remote_pages FROM sync_runs WHERE sort_name=? ORDER BY id DESC LIMIT 1", (sort,)).fetchone()
     total = int(latest["remote_total"] if latest else len(rows))
     pages = int(latest["remote_pages"] if latest else 1)
