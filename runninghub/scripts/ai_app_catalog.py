@@ -120,18 +120,40 @@ def infer_purpose(app: dict, nodes: list[dict]) -> str:
         return description
     title = str(app.get("title") or "AI 应用").strip()
     types = {str(node.get("fieldType") or "").upper() for node in nodes}
-    if "VIDEO" in types or any(x in title.lower() for x in ("video", "视频", "动画", "短片")):
+    title_lower = title.lower()
+    if "VIDEO" in types or any(x in title_lower for x in ("video", "视频", "动画", "短片")):
         output = "视频"
-    elif "AUDIO" in types or any(x in title.lower() for x in ("audio", "音乐", "语音", "配音")):
+    elif "AUDIO" in types or any(x in title_lower for x in ("audio", "音乐", "语音", "配音")):
         output = "音频"
-    elif "3D" in title.lower() or "3d" in title.lower():
+    elif "3D" in title_lower or "3d" in title_lower:
         output = "3D 内容"
     else:
         output = "图片"
+
+    media = [str(node.get("fieldType") or "").upper() for node in nodes]
+    input_labels = []
+    for kind, label in (("IMAGE", "图片"), ("VIDEO", "视频"), ("AUDIO", "音频")):
+        count = media.count(kind)
+        if count:
+            input_labels.append(f"{count} 个{label}")
+    text_count = sum(1 for node in nodes if str(node.get("fieldType") or "").upper() in {"STRING", "LIST", "INT", "FLOAT", "BOOLEAN", "SWITCH"})
+    if text_count:
+        input_labels.append(f"{text_count} 个文字或控制参数")
+    input_hint = "、".join(input_labels) if input_labels else "公开参数"
+
     prompt = next((str(node.get("fieldValue") or "").strip() for node in nodes
-                   if str(node.get("fieldName")) == "prompt" and node.get("fieldValue")), "")
-    hint = f"，默认提示词为“{prompt[:80]}…”" if len(prompt) > 80 else (f"，默认提示词为“{prompt}”" if prompt else "")
-    return f"用于生成或处理{output}的“{title}”应用{hint}。具体输入参数和效果请查看详情。"
+                   if str(node.get("fieldName") or "").lower() in {"prompt", "text", "input_text"} and node.get("fieldValue")), "")
+    prompt = " ".join(prompt.split())
+    prompt_hint = f"典型效果：{prompt[:150]}{'…' if len(prompt) > 150 else ''}" if prompt else "效果由输入素材和参数决定"
+    if output == "视频" and "IMAGE" in media and "VIDEO" in media:
+        action = "根据图片、参考视频和文字描述生成视频"
+    elif output == "视频" and "IMAGE" in media:
+        action = "根据参考图片和文字描述生成视频"
+    elif output == "视频" and "VIDEO" in media:
+        action = "根据参考视频和文字参数生成视频"
+    else:
+        action = {"视频": "生成或编辑视频", "音频": "生成或处理音频", "3D 内容": "生成 3D 内容", "图片": "生成或编辑图片"}[output]
+    return f"{action}。需要准备：{input_hint}。{prompt_hint}"
 
 
 def stable_cover(app: dict) -> str:
