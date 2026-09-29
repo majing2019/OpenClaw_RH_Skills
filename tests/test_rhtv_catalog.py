@@ -150,7 +150,11 @@ class RHTVCatalogTests(unittest.TestCase):
         self.assertEqual(data["previewType"], "video")
         self.assertEqual(len(data["nodes"]), 2)
         self.assertEqual(data["nodes"][1]["modelCode"], "video-demo")
-        self.assertTrue(data["sourceUrl"].startswith("https://rhtv.runninghub.ai/"))
+        self.assertEqual(
+            data["sourceUrl"],
+            "https://rhtv.runninghub.ai/projects/canvas/camp"
+            "?section=workflow&type=workflow&category=recommended",
+        )
 
     def test_rejects_non_numeric_detail_id(self):
         with self.assertRaises(catalog.CatalogError):

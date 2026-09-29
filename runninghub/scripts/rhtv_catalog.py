@@ -21,10 +21,13 @@ DEFAULT_API_BASE = "https://www.runninghub.ai"
 LIST_PATH = "/canvas/common-workflow/list"
 DETAIL_PATH = "/canvas/admin/common-workflow/detail"
 MAX_PAGE_SIZE = 100
-RHTV_LIBRARY_URL = "https://rhtv.runninghub.ai/projects/canvas/inspiration/create"
+RHTV_LIBRARY_URL = (
+    "https://rhtv.runninghub.ai/projects/canvas/camp"
+    "?section=workflow&type=workflow&category=recommended"
+)
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "rhtv_catalog.sqlite3"
 MEDIA_NAMES = {"image": "图片", "video": "视频", "audio": "音频", "string": "文本", "3d": "3D 模型", "unknown": "内容"}
-NORMALIZER_VERSION = 4
+NORMALIZER_VERSION = 5
 
 
 class CatalogError(RuntimeError):

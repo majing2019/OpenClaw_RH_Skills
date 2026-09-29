@@ -41,7 +41,15 @@ isolated from generation code.
 The public catalog does not expose a permanent canvas URL for each template.
 The local browser therefore links only to the official RHTV workflow library;
 it must not present a local catalog URL as an RHTV workflow link. RHTV creates
-a new personal canvas only after a user selects a template.
+a new personal canvas only after a user selects a template. The current
+official template-library route is:
+
+```text
+https://rhtv.runninghub.ai/projects/canvas/camp?section=workflow&type=workflow&category=recommended
+```
+
+Do not use the retired `/projects/canvas/inspiration/create` route: it can land
+on an empty “No workflows” state after RHTV's community-page migration.
 
 The skill does not call RHTV's private browser-session endpoints. A public
 catalog ID or `canvasId` is not a `webappId` or `workflowId`, so never pass it
