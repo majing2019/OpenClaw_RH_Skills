@@ -288,6 +288,26 @@
       return (nodes || []).filter(node => ['STRING', 'LIST', 'INT', 'FLOAT', 'BOOLEAN'].includes(String(node.fieldType || '').toUpperCase()));
     }
 
+    function formatFieldOptions(fieldData) {
+      if (!fieldData) return '';
+      if (Array.isArray(fieldData)) {
+        return fieldData.filter(value => value !== null && value !== undefined).join(' / ');
+      }
+      if (typeof fieldData !== 'string') return '';
+      try {
+        const parsed = JSON.parse(fieldData);
+        if (Array.isArray(parsed) && Array.isArray(parsed[0])) {
+          return parsed[0].filter(value => value !== null && value !== undefined).join(' / ');
+        }
+        if (Array.isArray(parsed) && parsed.length && parsed.every(value => ['string', 'number', 'boolean'].includes(typeof value))) {
+          return parsed.join(' / ');
+        }
+      } catch (_) {
+        // Ignore implementation details that are not user-facing options.
+      }
+      return '';
+    }
+
     function appInputSummary(nodes) {
       const media = appMediaNodes(nodes);
       const counts = media.reduce((acc, node) => { const type = String(node.fieldType).toUpperCase(); acc[type] = (acc[type] || 0) + 1; return acc; }, {});
@@ -471,7 +491,7 @@
           <div class="pills"><span class="pill type ${escapeHtml(outputType)}">输出：${escapeHtml(typeNames[outputType] || outputType)}</span><span class="pill">${data.nodeCount || nodes.length} 个公开参数</span></div>
           <div class="detail-section"><h3>这个应用能做什么</h3><p class="effect-copy">${escapeHtml(data.purpose || appDescription(app))}</p></div>
           <div class="detail-section"><h3>需要准备的输入</h3><p class="fine-print">${escapeHtml(appInputSummary(nodes))}</p>${media.length ? `<div class="params">${media.map(node => `<div class="param"><code>${escapeHtml(node.description || appFieldNames[String(node.fieldType).toUpperCase()] || '媒体素材')}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '媒体')} · 上传文件</small><span>输入</span></div>`).join('')}</div>` : '<div class="empty">没有识别到需要上传的图片、视频或音频；可能只需要文字或选项参数。</div>'}</div>
-          <div class="detail-section"><h3>文字与控制参数</h3>${textParams.length ? `<div class="params">${textParams.map(node => `<div class="param"><code>${escapeHtml(node.description || appFieldNames[String(node.fieldType).toUpperCase()] || '应用参数')}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '')}${node.fieldValue !== undefined ? ` · 当前 ${escapeHtml(JSON.stringify(node.fieldValue))}` : ''}${node.fieldData?.length ? ` · 选项：${escapeHtml(node.fieldData.join(' / '))}` : ''}</small><span>可修改</span></div>`).join('')}</div>` : '<div class="empty">没有公开文字或控制参数。</div>'}</div>
+          <div class="detail-section"><h3>文字与控制参数</h3>${textParams.length ? `<div class="params">${textParams.map(node => { const options = formatFieldOptions(node.fieldData); return `<div class="param"><code>${escapeHtml(node.description || appFieldNames[String(node.fieldType).toUpperCase()] || '应用参数')}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '')}${node.fieldValue !== undefined ? ` · 当前 ${escapeHtml(JSON.stringify(node.fieldValue))}` : ''}${options ? ` · 选项：${escapeHtml(options)}` : ''}</small><span>可修改</span></div>`; }).join('')}</div>` : '<div class="empty">没有公开文字或控制参数。</div>'}</div>
           <div class="detail-section"><h3>输出说明</h3><p class="fine-print">目录根据应用名称、说明和公开节点推断为“${escapeHtml(typeNames[outputType] || outputType)}”；实际结果以应用运行返回的文件为准。</p></div>
           <div class="detail-section"><h3>官方 AI 应用</h3><a class="action-link" href="https://www.runninghub.cn/ai-detail/${encodeURIComponent(app.webappId)}" target="_blank" rel="noopener noreferrer">打开官方应用页面</a></div>`;
       } catch (error) {
