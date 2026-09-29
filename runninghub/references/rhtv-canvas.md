@@ -22,10 +22,18 @@ SQLite database and bootstraps it only when empty. The default database is
 `{baseDir}/data/rhtv_catalog.sqlite3`; override it with
 `RHTV_CATALOG_DB_PATH`. Removed remote entries are retained as inactive history.
 
-Every cached record includes a graph-derived Chinese introduction, inferred
-input nodes, and inferred output nodes. Inputs are graph
-nodes without incoming edges; outputs are nodes without outgoing edges. This
-is read-only discovery and never clones a workflow, creates a canvas, or
+For each public preview, the normalizer first finds the node whose output URL
+matches the catalog thumbnail/video and follows incoming edges back to its
+ancestors. It then stores only that preview-producing branch's original
+uploaded images, videos, and audio (`/uploads/` assets), creator prompts,
+generation settings, and structural starting/output nodes. The creator's
+top-level prompt is preferred over an automatically translated copy in
+`params.prompt`; if that snapshot is truncated at the platform's approximate
+4,000-character limit, the longer model parameter is used instead. This prevents unrelated experiments elsewhere on the same
+canvas from being reported as required inputs. When the public graph does not
+expose an upload or prompt, say that it was not found rather than inventing it.
+
+This is read-only discovery and never clones a workflow, creates a canvas, or
 submits a paid generation task. The public catalog interface is not a
 documented execution API, so treat it as best-effort and keep the helper
 isolated from generation code.

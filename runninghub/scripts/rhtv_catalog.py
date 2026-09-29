@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -23,6 +24,7 @@ MAX_PAGE_SIZE = 100
 RHTV_LIBRARY_URL = "https://rhtv.runninghub.ai/projects/canvas/inspiration/create"
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "rhtv_catalog.sqlite3"
 MEDIA_NAMES = {"image": "图片", "video": "视频", "audio": "音频", "string": "文本", "3d": "3D 模型", "unknown": "内容"}
+NORMALIZER_VERSION = 4
 
 
 class CatalogError(RuntimeError):
@@ -136,6 +138,234 @@ def node_media_type(node: dict) -> str:
     return "unknown"
 
 
+def output_urls(node: dict) -> set[str]:
+    data = node.get("data") if isinstance(node.get("data"), dict) else {}
+    urls: set[str] = set()
+    for output in data.get("output") or []:
+        if not isinstance(output, dict):
+            continue
+        for key in ("url", "originalUrl", "thumbnail"):
+            value = output.get(key)
+            if isinstance(value, str) and value.startswith(("https://", "http://")):
+                urls.add(value)
+    return urls
+
+
+def preview_component(nodes: list[dict], edges: list[dict], thumbnail: str) -> tuple[list[dict], list[dict]]:
+    """Return the graph branch that produced the catalog preview."""
+    if not thumbnail:
+        return nodes, edges
+    preview_nodes = [str(node.get("id") or "") for node in nodes if thumbnail in output_urls(node)]
+    if not preview_nodes:
+        return nodes, edges
+    reverse: dict[str, set[str]] = {}
+    for edge in edges:
+        source, target = str(edge.get("source") or ""), str(edge.get("target") or "")
+        if source and target:
+            reverse.setdefault(target, set()).add(source)
+    # Some canvas tools retain their source as node metadata instead of a
+    # visible ReactFlow edge (for example, Depth Capture).
+    for node in nodes:
+        data = node.get("data") if isinstance(node.get("data"), dict) else {}
+        target = str(node.get("id") or "")
+        for key in ("sourceNodeId", "inheritedFrom"):
+            source = str(data.get(key) or "")
+            if source and target:
+                reverse.setdefault(target, set()).add(source)
+    included = set(preview_nodes)
+    pending = list(preview_nodes)
+    while pending:
+        for source in reverse.get(pending.pop(), set()):
+            if source not in included:
+                included.add(source)
+                pending.append(source)
+    selected_nodes = [node for node in nodes if str(node.get("id") or "") in included]
+    selected_edges = [edge for edge in edges
+                      if str(edge.get("source") or "") in included and str(edge.get("target") or "") in included]
+    return selected_nodes or nodes, selected_edges
+
+
+def clean_prompt(value: object) -> str:
+    return str(value or "").strip() if isinstance(value, (str, int, float)) else ""
+
+
+def node_prompt(node: dict) -> str:
+    data = node.get("data") if isinstance(node.get("data"), dict) else {}
+    params = data.get("params") if isinstance(data.get("params"), dict) else {}
+    # The top-level value is the creator's original prompt. params.prompt is often
+    # an automatically translated English copy, so prefer the former. RHTV caps
+    # some top-level prompt snapshots at roughly 4,000 characters; when the model
+    # parameter preserves a longer copy, use it so the displayed input is complete.
+    original = clean_prompt(data.get("prompt"))
+    model_prompt = clean_prompt(params.get("prompt"))
+    if len(original) >= 3990 and len(model_prompt) > len(original):
+        return model_prompt
+    return original or model_prompt
+
+
+def uploaded_urls(node: dict) -> list[str]:
+    data = node.get("data") if isinstance(node.get("data"), dict) else {}
+    params = data.get("params") if isinstance(data.get("params"), dict) else {}
+    values: list[object] = [data.get("sourceObjects"), data.get("toolsSourceUrl")]
+    values.extend(params.get(key) for key in
+                  ("imageUrls", "videoUrls", "audioUrls", "image", "video", "audio"))
+    urls: list[str] = []
+    for value in values:
+        candidates = value if isinstance(value, list) else [value]
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.startswith(("https://", "http://")) and "/uploads/" in candidate:
+                urls.append(candidate)
+    return list(dict.fromkeys(urls))
+
+
+def source_inputs(nodes: list[dict], edges: list[dict]) -> list[dict]:
+    results: list[dict] = []
+    seen: set[str] = set()
+    counters = {"image": 0, "video": 0, "audio": 0, "unknown": 0}
+    incoming = {str(edge.get("target") or "") for edge in edges}
+    incoming.update(str(node.get("id") or "") for node in nodes
+                    if isinstance(node.get("data"), dict)
+                    and ((node.get("data") or {}).get("sourceNodeId") or (node.get("data") or {}).get("inheritedFrom")))
+    for node in nodes:
+        uploads = uploaded_urls(node)
+        candidates = [(url, True) for url in uploads]
+        node_id = str(node.get("id") or "")
+        # Older public canvases sometimes retain a referenced/generated asset as
+        # a root output instead of preserving its original upload URL.
+        if node_id not in incoming and not uploads:
+            candidates.extend((url, False) for url in output_urls(node))
+        for url, is_upload in candidates:
+            if url in seen:
+                continue
+            seen.add(url)
+            kind = media_type(url)
+            if kind == "unknown":
+                kind = node_media_type(node)
+            counters[kind] = counters.get(kind, 0) + 1
+            name = MEDIA_NAMES.get(kind, "素材")
+            results.append({
+                "id": f"{node.get('id') or 'media'}-{counters[kind]}",
+                "type": kind,
+                "label": f"{name} {counters[kind]}",
+                "description": (f"创作者上传的原始{name}，用于复刻当前预览成片。" if is_upload
+                                else f"公开画布保存的参考{name}；原始上传地址未保留。"),
+                "url": url,
+                "fileName": Path(urlparse(url).path).name,
+                "nodeId": str(node.get("id") or ""),
+                "origin": "upload" if is_upload else "public-reference",
+            })
+    return results
+
+
+def prompt_inputs(nodes: list[dict]) -> list[dict]:
+    results: list[dict] = []
+    seen: set[str] = set()
+    counters: dict[str, int] = {}
+    for node in nodes:
+        prompt = node_prompt(node)
+        normalized = re.sub(r"\s+", " ", prompt).strip()
+        if len(normalized) < 4 or normalized in seen:
+            continue
+        seen.add(normalized)
+        kind = node_media_type(node)
+        counters[kind] = counters.get(kind, 0) + 1
+        target = MEDIA_NAMES.get(kind, "内容")
+        results.append({
+            "id": f"prompt-{node.get('id') or len(results) + 1}",
+            "type": "string",
+            "label": f"{target}提示词 {counters[kind]}",
+            "description": f"用于生成或处理{target}的原始文字指令。",
+            "value": prompt,
+            "targetType": kind,
+            "nodeId": str(node.get("id") or ""),
+            "modelCode": (node.get("data") or {}).get("modelCode"),
+        })
+    return results
+
+
+def text_excerpt(text: str, limit: int = 180) -> str:
+    compact = re.sub(r"\s+", " ", text).strip()
+    compact = re.sub(r"^【[^】]{1,20}】\s*", "", compact)
+    compact = compact.lstrip("【 ")
+    if len(compact) <= limit:
+        return compact
+    cut = compact[:limit].rsplit(" ", 1)[0].rstrip("，,。.;；：:")
+    return f"{cut}…"
+
+
+def has_chinese(text: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", text))
+
+
+def effect_hint(prompt: str, name: str) -> str:
+    """Create a concise Chinese effect summary without pretending to translate every prompt."""
+    lower = prompt.casefold()
+    title = name.casefold()
+    if any(word in title for word in ("map", "マップ", "맵", "地图")) and any(word in lower for word in ("city", "travel", "城市", "旅行")):
+        return "人物会在不同城市的 3D 地图场景中切换背景与造型，并用环绕镜头完成连续转场。"
+    if any(word in title for word in ("makeup", "bare", "素颜", "妆", "민낯")) and any(word in lower for word in ("dance", "舞蹈", "跳舞")):
+        return "人物会在连续舞蹈动作中完成素颜、妆容或造型的无缝变化，保持同一人物和动作连贯。"
+    if any(word in title for word in ("transform", "trans", "change", "outfit", "dance", "换装", "变装", "変身", "변신")) and any(word in lower for word in ("dance", "movement", "舞蹈", "动作")):
+        return "成片会复刻参考视频中的人物动作和节奏，并在卡点处完成服装或造型的连续切换。"
+    if any(word in title for word in ("floating", "悬浮")) and any(word in lower for word in ("product", "产品", "奶茶", "商品")):
+        return "成片以产品悬浮和人物互动为核心，呈现带轻奇幻感的产品广告效果。"
+    if any(word in title for word in ("pet", "dog", "cat", "宠物", "狗", "猫")) and any(word in lower for word in ("hair", "hairstyle", "发型")):
+        return "成片让宠物在固定机位中连续切换不同发型或造型，形成轻松有趣的短视频效果。"
+    if has_chinese(prompt):
+        return text_excerpt(prompt)
+    return "成片内容、人物动作、镜头运动和风格由下方的视频生成提示词精确控制。"
+
+
+def output_settings(nodes: list[dict]) -> dict:
+    video_nodes = [node for node in nodes if node_media_type(node) == "video" and node_prompt(node)]
+    node = video_nodes[-1] if video_nodes else (nodes[-1] if nodes else {})
+    data = node.get("data") if isinstance(node.get("data"), dict) else {}
+    params = data.get("params") if isinstance(data.get("params"), dict) else {}
+    settings = {key: params.get(key) for key in ("aspectRatio", "ratio", "duration", "resolution", "audio")
+                if params.get(key) not in (None, "", [])}
+    try:
+        if float(settings.get("duration", 1)) <= 0:
+            settings.pop("duration", None)
+    except (TypeError, ValueError):
+        pass
+    return settings
+
+
+def rich_description(name: str, nodes: list[dict], media_inputs: list[dict], prompts: list[dict], preview_type: str) -> str:
+    settings = output_settings(nodes)
+    ratio = settings.get("aspectRatio") or settings.get("ratio")
+    duration = settings.get("duration")
+    shape = "竖屏" if ratio in ("9:16", "3:4") else "横屏" if ratio in ("16:9", "4:3") else ""
+    timing = f"约 {duration} 秒" if duration else ""
+    format_text = "、".join(part for part in (shape, timing) if part)
+    video_prompts = [item["value"] for item in prompts if item.get("targetType") == "video"]
+    main_prompt = video_prompts[-1] if video_prompts else (prompts[-1]["value"] if prompts else "")
+    nouns = {"video": "视频", "image": "图片", "audio": "音频", "string": "文本结果", "3d": "3D 内容"}
+    product = nouns.get(preview_type) or nouns.get(node_media_type(nodes[-1]) if nodes else "") or "内容"
+    measure = "一支" if product == "视频" else "一张" if product == "图片" else "一段" if product in ("音频", "文本结果") else "一项"
+    intro = f"这个工作流会生成{measure}{format_text + '、' if format_text else ''}以「{name}」为主题的{product}。"
+    if product == "视频":
+        detail = effect_hint(main_prompt, name) if main_prompt else "公开画布没有保留可读取的视频提示词，请以预览成片和节点结构为准。"
+    else:
+        detail = text_excerpt(main_prompt) if main_prompt and has_chinese(main_prompt) else f"具体{product}内容由下方原始提示词和参考素材控制。"
+    counts: dict[str, int] = {}
+    for item in media_inputs:
+        counts[item["type"]] = counts.get(item["type"], 0) + 1
+    needs = "、".join(f"{count} 个{MEDIA_NAMES.get(kind, kind)}素材" for kind, count in counts.items())
+    if needs:
+        detail += f" 复刻该预览需要准备{needs}。"
+    return intro + detail
+
+
+def input_summary(media_inputs: list[dict], prompts: list[dict]) -> str:
+    counts: dict[str, int] = {}
+    for item in media_inputs:
+        counts[item["type"]] = counts.get(item["type"], 0) + 1
+    media = "、".join(f"{count} 个{MEDIA_NAMES.get(kind, kind)}" for kind, count in counts.items())
+    prefix = f"需要：{media}" if media else "未识别到需要额外上传的媒体素材"
+    return f"{prefix}；工作流内含 {len(prompts)} 段原始文字指令。"
+
+
 def compact_node(node: dict, direction: str = "") -> dict:
     data = node.get("data") if isinstance(node.get("data"), dict) else {}
     kind = node_media_type(node)
@@ -161,42 +391,36 @@ def graph_io(nodes: list[dict], edges: list[dict]) -> tuple[list[dict], list[dic
     return inputs, outputs
 
 
-def chinese_description(inputs: list[dict], outputs: list[dict], node_count: int, models: list[str]) -> str:
-    input_names = "、".join(dict.fromkeys(item["label"] for item in inputs)) or "未识别输入"
-    output_names = "、".join(dict.fromkeys(item["label"] for item in outputs)) or "未识别输出"
-    output_types = {item["type"] for item in outputs}
-    purpose = "多媒体创作"
-    if output_types == {"video"}:
-        purpose = "视频创作"
-    elif output_types == {"image"}:
-        purpose = "图像创作"
-    elif output_types == {"audio"}:
-        purpose = "音频创作"
-    elif output_types == {"string"}:
-        purpose = "文本处理"
-    text = f"这是一个 RHTV {purpose}工作流，以{input_names}作为起点，经过 {node_count} 个处理节点，生成{output_names}。"
-    if models:
-        text += f" 涉及模型：{'、'.join(models[:3])}{' 等' if len(models) > 3 else ''}。"
-    return text
-
-
 def normalize_record(record: dict, include_nodes: bool = False) -> dict:
     graph = graph_from(record)
     raw_nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
-    nodes = [node for node in raw_nodes if isinstance(node, dict) and node.get("type") != "group"]
-    edges = [edge for edge in (graph.get("edges") or []) if isinstance(edge, dict)]
+    all_nodes = [node for node in raw_nodes if isinstance(node, dict) and node.get("type") != "group"]
+    all_edges = [edge for edge in (graph.get("edges") or []) if isinstance(edge, dict)]
+    thumbnail = str(record.get("thumbnail") or "")
+    nodes, edges = preview_component(all_nodes, all_edges, thumbnail)
     models = sorted({str(node.get("data", {}).get("modelCode")) for node in nodes
                      if isinstance(node.get("data"), dict) and node.get("data", {}).get("modelCode")})
     inputs, outputs = graph_io(nodes, edges)
-    thumbnail = str(record.get("thumbnail") or "")
+    media_inputs = source_inputs(nodes, edges)
+    prompts = prompt_inputs(nodes)
+    name = str(record.get("name") or "未命名工作流")
+    preview_type = media_type(thumbnail)
+    effect_description = rich_description(name, nodes, media_inputs, prompts, preview_type)
     item = {
         "id": str(record.get("id") or ""), "code": str(record.get("code") or ""),
-        "name": str(record.get("name") or "未命名工作流"),
+        "name": name,
         "description": str(record.get("description") or ""),
-        "chineseDescription": chinese_description(inputs, outputs, len(nodes), models),
+        "chineseDescription": effect_description,
+        "effectDescription": effect_description,
+        "inputSummary": input_summary(media_inputs, prompts),
+        "requiredInputs": [*media_inputs, *prompts],
+        "mediaInputs": media_inputs,
+        "promptInputs": prompts,
+        "outputSettings": output_settings(nodes),
         "thumbnail": thumbnail if thumbnail.startswith(("https://", "http://")) else "",
-        "previewType": media_type(thumbnail), "updateTime": record.get("updateTime"),
+        "previewType": preview_type, "updateTime": record.get("updateTime"),
         "nodeCount": len(nodes), "edgeCount": len(edges),
+        "canvasNodeCount": len(all_nodes), "canvasEdgeCount": len(all_edges),
         "outputTypes": sorted({entry["type"] for entry in outputs if entry["type"] != "unknown"}),
         "models": models, "inputs": inputs, "outputs": outputs,
         "sourceUrl": RHTV_LIBRARY_URL,
@@ -209,6 +433,7 @@ def normalize_record(record: dict, include_nodes: bool = False) -> dict:
 def record_hash(record: dict) -> str:
     stable = {key: record.get(key) for key in
               ("id", "code", "name", "description", "thumbnail", "updateTime", "workflowContent")}
+    stable["_normalizerVersion"] = NORMALIZER_VERSION
     encoded = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -249,6 +474,8 @@ def read_cached(connection: sqlite3.Connection, keyword: str = "") -> dict:
     if normalized_keyword:
         workflows = [item for item in workflows if normalized_keyword in " ".join([
             item.get("name", ""), item.get("description", ""), item.get("chineseDescription", ""),
+            item.get("effectDescription", ""), item.get("inputSummary", ""),
+            *(entry.get("value", "") for entry in (item.get("promptInputs") or [])),
             *(item.get("models") or []), *(item.get("outputTypes") or []),
         ]).casefold()]
     return {"source": "RHTV public catalog · local incremental cache", "total": len(workflows),

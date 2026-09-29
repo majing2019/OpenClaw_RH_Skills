@@ -16,17 +16,19 @@ SPEC.loader.exec_module(catalog)
 
 
 def record(record_id, name, media="mp4"):
+    thumbnail = f"https://cdn.example/{record_id}.{media}"
     return {
         "id": str(record_id),
         "name": name,
         "description": f"{name} description",
-        "thumbnail": f"https://cdn.example/{record_id}.{media}",
+        "thumbnail": thumbnail,
         "updateTime": "2026-09-26T14:23:00.000+00:00",
         "workflowContent": {
             "nodes": [
                 {"id": "group-1", "type": "group", "data": {}},
-                {"id": "node-1", "type": "rh-image", "data": {"label": "Image", "subType": "text-image", "modelCode": "image-demo"}},
-                {"id": "node-2", "type": "rh-video", "data": {"label": "Video", "subType": "image-video", "modelCode": "video-demo"}},
+                {"id": "node-1", "type": "rh-image", "data": {"label": "Image", "subType": "text-image", "modelCode": "image-demo", "sourceObjects": [f"https://cdn.example/uploads/{record_id}.png"]}},
+                {"id": "node-2", "type": "rh-video", "data": {"label": "Video", "subType": "image-video", "modelCode": "video-demo", "prompt": "人物在城市街道中完成自然转场。", "params": {"duration": "6", "aspectRatio": "9:16"}, "output": [{"url": thumbnail}]}},
+                {"id": "node-unused", "type": "rh-audio", "data": {"label": "Unused", "subType": "text-audio", "modelCode": "audio-unused"}},
             ],
             "edges": [{"source": "node-1", "target": "node-2"}],
         },
@@ -99,11 +101,16 @@ class RHTVCatalogTests(unittest.TestCase):
         self.assertEqual(data["count"], 2)
         self.assertEqual(data["sync"]["created"], 2)
         self.assertEqual(data["workflows"][0]["nodeCount"], 2)
+        self.assertEqual(data["workflows"][0]["canvasNodeCount"], 3)
         self.assertEqual(data["workflows"][0]["models"], ["image-demo", "video-demo"])
         self.assertEqual(data["workflows"][0]["outputTypes"], ["video"])
         self.assertEqual(data["workflows"][0]["inputs"][0]["type"], "image")
         self.assertEqual(data["workflows"][0]["outputs"][0]["type"], "video")
-        self.assertIn("视频创作工作流", data["workflows"][0]["chineseDescription"])
+        self.assertIn("人物在城市街道中完成自然转场", data["workflows"][0]["chineseDescription"])
+        self.assertEqual(data["workflows"][0]["inputSummary"], "需要：1 个图片；工作流内含 1 段原始文字指令。")
+        self.assertEqual(data["workflows"][0]["mediaInputs"][0]["type"], "image")
+        self.assertEqual(data["workflows"][0]["promptInputs"][0]["value"], "人物在城市街道中完成自然转场。")
+        self.assertEqual(data["workflows"][0]["outputSettings"]["duration"], "6")
         self.assertNotIn("detailPath", data["workflows"][0])
         self.assertNotIn("workflowContent", data["workflows"][0])
         self.assertTrue(Path(self.test_env["RHTV_CATALOG_DB_PATH"]).is_file())

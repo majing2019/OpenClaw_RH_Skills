@@ -126,6 +126,7 @@
     .rhtv-card { padding: 0; overflow: hidden; }
     .rhtv-card .cover { position: relative; }
     .preview-badge { position: absolute; right: 9px; top: 9px; padding: 3px 8px; border-radius: 999px; background: rgba(3, 11, 17, .82); border: 1px solid rgba(255,255,255,.18); color: #dcebf5; font-size: 11px; }
+    .input-summary { margin-top: 11px; padding: 9px 10px; border: 1px solid #284153; border-radius: 10px; background: rgba(56,214,217,.06); color: #c9e5e8; font-size: 12px; line-height: 1.55; }
     .rhtv-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; color: var(--muted); font-size: 12px; }
     .detail-preview { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: #07121b; margin-bottom: 16px; }
     .detail-preview img, .detail-preview video { width: 100%; max-height: 420px; object-fit: contain; display: block; }
@@ -137,6 +138,20 @@
     .io-item { padding: 8px 0; border-top: 1px solid #1d3040; }
     .io-item:first-of-type { border-top: 0; }
     .io-item span { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .effect-copy { margin: 0; padding: 14px 15px; border-left: 3px solid var(--cyan); border-radius: 0 12px 12px 0; background: rgba(56,214,217,.06); line-height: 1.75; }
+    .media-inputs { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 10px; }
+    .media-input { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #09151e; }
+    .media-input img, .media-input video { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #050c12; }
+    .media-input audio { width: calc(100% - 16px); margin: 12px 8px 4px; }
+    .media-input-copy { padding: 10px; }
+    .media-input-copy b, .media-input-copy span { display: block; }
+    .media-input-copy span { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .prompt-list { display: grid; gap: 9px; }
+    .prompt-item { border: 1px solid var(--line); border-radius: 12px; background: #09151e; overflow: hidden; }
+    .prompt-item summary { cursor: pointer; padding: 12px 14px; font-weight: 700; }
+    .prompt-item summary span { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: 6px; }
+    .prompt-item pre { margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; max-height: 360px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .settings { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
     .action-link { display: inline-flex; align-items: center; justify-content: center; min-height: 43px; padding: 9px 14px; border-radius: 11px; color: #071018; background: var(--cyan); text-decoration: none; font-weight: 750; }
     .fine-print { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
     pre { overflow: auto; padding: 15px; border-radius: 12px; background: #050c12; border: 1px solid var(--line); color: #b9f5e4; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -406,7 +421,7 @@
       const query = $('#rhtvSearch').value.trim().toLowerCase();
       const type = $('#rhtvType').value;
       state.rhtvFiltered = (state.rhtvData.workflows || []).filter(item => {
-        const haystack = [item.name, item.description, item.chineseDescription, ...(item.models || []), ...(item.outputTypes || [])].join(' ').toLowerCase();
+        const haystack = [item.name, item.description, item.chineseDescription, item.effectDescription, item.inputSummary, ...(item.promptInputs || []).map(prompt => prompt.value), ...(item.models || []), ...(item.outputTypes || [])].join(' ').toLowerCase();
         return (!query || haystack.includes(query)) && (!type || (item.outputTypes || []).includes(type));
       });
       renderRhtv();
@@ -435,7 +450,8 @@
           <div class="cover">${rhtvPreview(item)}${item.previewType === 'video' ? '<span class="preview-badge">悬停预览</span>' : ''}</div>
           <div class="app-copy">
             <div class="card-head"><h3>${escapeHtml(item.name || '未命名工作流')}</h3><span class="count">#${escapeHtml(item.id)}</span></div>
-            <p>${escapeHtml(item.chineseDescription || item.description || '暂无中文说明')}</p>
+            <p>${escapeHtml(item.effectDescription || item.chineseDescription || item.description || '暂无中文说明')}</p>
+            <div class="input-summary">${escapeHtml(item.inputSummary || '具体输入请打开详情查看')}</div>
             <div class="pills" style="margin-top:12px">${(item.outputTypes || []).map(type => `<span class="pill type ${escapeHtml(type)}">${escapeHtml(typeNames[type] || type)}</span>`).join('') || '<span class="pill">未识别输出</span>'}${(item.models || []).slice(0,2).map(model => `<span class="pill">${escapeHtml(model)}</span>`).join('')}</div>
             <div class="rhtv-meta"><span>${item.nodeCount || 0} 节点 · ${item.edgeCount || 0} 连线</span><span>${escapeHtml(item.updateTime || '')}</span></div>
           </div>
@@ -457,6 +473,32 @@
       return items?.length ? items.map(entry => `<div class="io-item"><b>${escapeHtml(entry.label)}</b><span>${escapeHtml(entry.description || '')}</span>${entry.modelCode ? `<span>模型：${escapeHtml(entry.modelCode)}</span>` : ''}</div>`).join('') : `<span class="fine-print">${escapeHtml(emptyText)}</span>`;
     }
 
+    function renderMediaInputs(items) {
+      if (!items?.length) return '<div class="empty">这条预览分支没有发现需要另外上传的图片、视频或音频。</div>';
+      return `<div class="media-inputs">${items.map(item => {
+        let preview = '';
+        if (item.type === 'image') preview = `<img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.label)}" loading="lazy">`;
+        else if (item.type === 'video') preview = `<video src="${escapeHtml(item.url)}" controls muted playsinline preload="metadata"></video>`;
+        else if (item.type === 'audio') preview = `<audio src="${escapeHtml(item.url)}" controls preload="metadata"></audio>`;
+        else preview = '<div class="cover-fallback">素材</div>';
+        return `<div class="media-input">${preview}<div class="media-input-copy"><b>${escapeHtml(item.label)}</b><span>${escapeHtml(item.description || '')}</span></div></div>`;
+      }).join('')}</div>`;
+    }
+
+    function renderPromptInputs(items) {
+      if (!items?.length) return '<div class="empty">公开画布没有保留可读取的文字提示词。</div>';
+      return `<div class="prompt-list">${items.map((item, index) => `<details class="prompt-item" ${index === items.length - 1 ? 'open' : ''}>
+        <summary>${escapeHtml(item.label)}<span>${escapeHtml(item.modelCode || '')}</span></summary>
+        <pre>${escapeHtml(item.value || '')}</pre>
+      </details>`).join('')}</div>`;
+    }
+
+    function renderOutputSettings(settings) {
+      if (!settings || !Object.keys(settings).length) return '';
+      const labels = { aspectRatio: '画幅', ratio: '画幅', duration: '时长', resolution: '清晰度', audio: '音频' };
+      return `<div class="settings">${Object.entries(settings).map(([key, value]) => `<span class="pill">${escapeHtml(labels[key] || key)}：${escapeHtml(value === true ? '开启' : value === false ? '关闭' : String(value))}${key === 'duration' ? ' 秒' : ''}</span>`).join('')}</div>`;
+    }
+
     async function openRhtv(item) {
       $('#detailTitle').textContent = item.name || 'RHTV 工作流';
       $('#detailSub').textContent = `RHTV 公开目录 #${item.id} · 正在读取节点…`;
@@ -468,11 +510,13 @@
         $('#detailBody').innerHTML = `
           ${data.thumbnail ? `<div class="detail-preview">${rhtvPreview(data, true)}</div>` : ''}
           <div class="pills">${(data.outputTypes || []).map(type => `<span class="pill type ${escapeHtml(type)}">${escapeHtml(typeNames[type] || type)}</span>`).join('')}${(data.models || []).map(model => `<span class="pill">${escapeHtml(model)}</span>`).join('')}</div>
-          <p>${escapeHtml(data.chineseDescription || '暂未生成中文说明。')}</p>
+          <div class="detail-section"><h3>这个工作流能生成什么</h3><p class="effect-copy">${escapeHtml(data.effectDescription || data.chineseDescription || '暂未生成中文说明。')}</p>${renderOutputSettings(data.outputSettings)}</div>
           ${data.description ? `<p class="fine-print">目录原始说明：${escapeHtml(data.description)}</p>` : ''}
-          <div class="detail-section"><h3>输入与输出</h3><div class="io-grid">
-            <div class="io-box"><strong>输入</strong>${renderIoItems(data.inputs, '未识别到明确的输入节点')}</div>
-            <div class="io-box"><strong>输出</strong>${renderIoItems(data.outputs, '未识别到明确的输出节点')}</div>
+          <div class="detail-section"><h3>生成这条预览需要上传的素材</h3><p class="fine-print">只列出最终预览视频所在分支实际引用的公开上传素材。</p>${renderMediaInputs(data.mediaInputs)}</div>
+          <div class="detail-section"><h3>生成这条预览使用的文字</h3><p class="fine-print">以下是公开画布保存的原始提示词；默认展开最终成片提示词。</p>${renderPromptInputs(data.promptInputs)}</div>
+          <div class="detail-section"><h3>结构识别</h3><div class="io-grid">
+            <div class="io-box"><strong>起点</strong>${renderIoItems(data.inputs, '未识别到明确的起点节点')}</div>
+            <div class="io-box"><strong>成片输出</strong>${renderIoItems(data.outputs, '未识别到明确的输出节点')}</div>
           </div></div>
           <div class="detail-section"><h3>官方 RHTV 工作流库</h3>
             <a class="action-link" href="${escapeHtml(data.sourceUrl)}" target="_blank" rel="noopener noreferrer">打开官方 RHTV 工作流库</a>
