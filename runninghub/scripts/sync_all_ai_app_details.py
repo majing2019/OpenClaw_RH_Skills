@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import sqlite3
 import sys
@@ -26,11 +27,17 @@ def input_specs(nodes: list[dict]) -> list[dict]:
     return result
 
 
+def fetch_one(webapp_id: str) -> tuple[str, list[dict], str]:
+    nodes, error = ai_app_catalog.fetch_detail(webapp_id)
+    return webapp_id, nodes, error
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sequential full AI app detail sync")
     parser.add_argument("--db", default=str(ai_app_catalog.DB_PATH))
     parser.add_argument("--retry-errors", action="store_true")
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--workers", type=int, default=1, help="Concurrent detail requests")
     args = parser.parse_args()
     db = ai_app_catalog.connect(Path(args.db))
     db.execute("ALTER TABLE apps ADD COLUMN test_inputs TEXT NOT NULL DEFAULT '[]'") if "test_inputs" not in {r[1] for r in db.execute("PRAGMA table_info(apps)")} else None
@@ -42,9 +49,12 @@ def main() -> int:
         rows = rows[:args.limit]
     total = len(rows)
     ok = failed = 0
-    for index, row in enumerate(rows, 1):
-        webapp_id = row["webapp_id"]
-        nodes, error = ai_app_catalog.fetch_detail(webapp_id)
+    workers = max(1, min(args.workers, 10))
+    row_by_id = {row["webapp_id"]: row for row in rows}
+
+    def save_result(index: int, webapp_id: str, nodes: list[dict], error: str):
+        nonlocal ok, failed
+        row = row_by_id[webapp_id]
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         app = {"title": row["title"], "description": row["description"], "purpose": row["purpose"]}
         purpose = ai_app_catalog.infer_purpose(app, nodes)
@@ -57,6 +67,15 @@ def main() -> int:
             ok += 1
         if index == 1 or index % 10 == 0:
             print(f"details {index}/{total} ok={ok} failed={failed} last={webapp_id}", flush=True)
+
+    if workers == 1:
+        for index, row in enumerate(rows, 1):
+            save_result(index, *fetch_one(row["webapp_id"])[0:3])
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(fetch_one, row["webapp_id"]) for row in rows]
+            for index, future in enumerate(concurrent.futures.as_completed(futures), 1):
+                save_result(index, *future.result())
     print(json.dumps({"total": total, "ok": ok, "failed": failed}, ensure_ascii=False))
     db.close()
     return 0
