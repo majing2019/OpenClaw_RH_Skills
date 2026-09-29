@@ -221,8 +221,8 @@
 
     <section class="view" id="apps" role="tabpanel" hidden>
       <div class="notice" id="appNotice">
-        <div><strong>实时 AI 应用目录</strong><span id="appNoticeText">正在检查 API 配置…</span></div>
-        <button class="primary" id="loadApps">加载应用</button>
+        <div><strong>AI 应用增量目录</strong><span id="appNoticeText">正在检查 API 配置…</span></div>
+        <button class="primary" id="loadApps">刷新目录</button>
       </div>
       <div class="toolbar rhtv-toolbar" style="margin-top:14px">
         <label class="field"><span class="search-icon" aria-hidden="true">⌕</span><input id="appSearch" type="search" placeholder="搜索应用名称、用途或输入类型" aria-label="搜索 AI 应用"></label>
@@ -382,14 +382,15 @@
       return parts.join(' · ');
     }
 
-    async function loadApps() {
+    async function loadApps(force = false) {
       if (!state.status?.apiConfigured) return;
       $('#appCards').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
-      $('#appSummary').textContent = '载入中…';
+      $('#appSummary').textContent = force ? '正在比对当前公开页并增量更新…' : '正在读取本地目录…';
       try {
-        const data = await fetchJson(`/api/apps?sort=${state.appSort}&size=12&page=${state.appPage}&days=7`);
+        const data = await fetchJson(`/api/apps?sort=${state.appSort}&size=12&page=${state.appPage}&days=7${force ? '&refresh=1' : ''}`);
         state.appData = data;
         renderApps();
+        if (data.sync) $('#appSummary').textContent += ` · 新增 ${data.sync.created}，更新 ${data.sync.updated}，未变化 ${data.sync.unchanged}`;
       } catch (error) {
         $('#appCards').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
         $('#appSummary').textContent = '加载失败';
@@ -599,7 +600,7 @@
     $('#typeFilter').addEventListener('change', applyFilters);
     $('#taskFilter').addEventListener('change', applyFilters);
     $('#resetFilters').addEventListener('click', () => { $('#search').value=''; $('#typeFilter').value=''; $('#taskFilter').value=''; applyFilters(); });
-    $('#loadApps').addEventListener('click', loadApps);
+    $('#loadApps').addEventListener('click', () => loadApps(true));
     $('#appSearch').addEventListener('input', renderApps);
     $('#appType').addEventListener('change', renderApps);
     $('#resetApps').addEventListener('click', () => { $('#appSearch').value=''; $('#appType').value=''; renderApps(); });

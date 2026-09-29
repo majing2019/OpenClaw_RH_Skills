@@ -27,6 +27,7 @@ SKILL_DIR = SCRIPT_DIR.parent
 HTML_PATH = SKILL_DIR / "web" / "index.html"
 CAPABILITIES_PATH = SKILL_DIR / "data" / "capabilities.json"
 APP_SCRIPT = SCRIPT_DIR / "runninghub_app.py"
+AI_APP_CATALOG_SCRIPT = SCRIPT_DIR / "ai_app_catalog.py"
 WORKFLOW_SCRIPT = SCRIPT_DIR / "runninghub_workflow.py"
 RHTV_CATALOG_SCRIPT = SCRIPT_DIR / "rhtv_catalog.py"
 COVER_DIR = Path("/tmp/openclaw/rh-output/app_covers")
@@ -42,16 +43,27 @@ class CatalogState:
         self.app_cache: dict[tuple, tuple[float, dict]] = {}
         self.rhtv_cache: tuple[float, dict] | None = None
 
-    def get_apps(self, sort: str, size: int, page: int, days: int) -> dict:
+    def get_apps(self, sort: str, size: int, page: int, days: int, force: bool = False) -> dict:
         cache_key = (sort, size, page, days)
         cached = self.app_cache.get(cache_key)
-        if cached and time.monotonic() - cached[0] < 60:
+        if cached and not force and time.monotonic() - cached[0] < 60:
             return cached[1]
         args = [
-            sys.executable, str(APP_SCRIPT), "--list", "--sort", sort,
+            sys.executable, str(AI_APP_CATALOG_SCRIPT), "--list", "--sort", sort,
             "--size", str(size), "--page", str(page), "--days", str(days),
         ]
-        data = run_json_command(args, timeout=90)
+        # The local database is the source for normal reads. A refresh first
+        # compares this page with RunningHub and writes only changed records.
+        if force or not cached:
+            sync_args = [
+                sys.executable, str(AI_APP_CATALOG_SCRIPT), "--sync", "--sort", sort,
+                "--size", str(size), "--page", str(page), "--days", str(days),
+            ]
+            synced = run_json_command(sync_args, timeout=180)
+            data = run_json_command(args, timeout=30)
+            data["sync"] = synced.get("sync")
+        else:
+            data = run_json_command(args, timeout=30)
         for app in data.get("apps", []):
             cover_file = app.pop("coverFile", None)
             if cover_file:
@@ -149,7 +161,8 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 size = max(1, min(30, int(query.get("size", ["12"])[0])))
                 page = max(1, int(query.get("page", ["1"])[0]))
                 days = max(1, min(30, int(query.get("days", ["7"])[0])))
-                self.send_json(STATE.get_apps(sort, size, page, days))
+                force = query.get("refresh", ["0"])[0] == "1"
+                self.send_json(STATE.get_apps(sort, size, page, days, force=force))
                 return
             if parsed.path.startswith("/api/apps/"):
                 webapp_id = parsed.path.removeprefix("/api/apps/")

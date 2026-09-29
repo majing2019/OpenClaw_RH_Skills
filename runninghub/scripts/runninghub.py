@@ -98,6 +98,31 @@ def read_key_from_openclaw_config() -> str | None:
     return None
 
 
+def read_key_from_dotenv() -> str | None:
+    """Read RUNNINGHUB_API_KEY from the user's conventional ~/.env file.
+
+    This intentionally supports only simple KEY=value lines and never prints
+    the value. Existing process environment and OpenClaw config remain higher
+    priority so explicit runtime configuration still wins.
+    """
+    env_path = Path.home() / ".env"
+    if not env_path.exists():
+        return None
+    try:
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() != "RUNNINGHUB_API_KEY":
+                continue
+            value = value.strip().strip('"').strip("'")
+            return value or None
+    except OSError:
+        return None
+    return None
+
+
 def resolve_api_key(provided_key: str | None) -> str | None:
     """Resolve API key without exiting. Returns None if not found."""
     if provided_key:
@@ -113,6 +138,10 @@ def resolve_api_key(provided_key: str | None) -> str | None:
     if env_key:
         return env_key
 
+    dotenv_key = read_key_from_dotenv()
+    if dotenv_key:
+        return dotenv_key
+
     return read_key_from_openclaw_config()
 
 
@@ -125,6 +154,9 @@ def get_key_source(provided_key: str | None) -> str:
     env_key = os.environ.get("RUNNINGHUB_API_KEY", "").strip()
     if env_key:
         return "env"
+    dotenv_key = read_key_from_dotenv()
+    if dotenv_key:
+        return "dotenv"
     cfg_key = read_key_from_openclaw_config()
     if cfg_key:
         return "config"
