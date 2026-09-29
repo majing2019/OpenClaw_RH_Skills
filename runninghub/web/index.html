@@ -288,6 +288,14 @@
       return (nodes || []).filter(node => ['STRING', 'LIST', 'INT', 'FLOAT', 'BOOLEAN'].includes(String(node.fieldType || '').toUpperCase()));
     }
 
+    function appPromptNodes(nodes) {
+      return (nodes || []).filter(node => {
+        const type = String(node.fieldType || '').toUpperCase();
+        const name = String(node.fieldName || '').toLowerCase();
+        return type === 'STRING' && (name === 'prompt' || name === 'text' || name.includes('prompt') || name.includes('text'));
+      });
+    }
+
     function formatFieldOptions(fieldData) {
       if (!fieldData) return '';
       if (Array.isArray(fieldData)) {
@@ -324,6 +332,28 @@
       return /\.(mp4|webm|mov)(?:$|\?)/i.test(url)
         ? `<video src="${safe}" muted autoplay loop playsinline preload="metadata" aria-label="${alt}"></video>`
         : `<img src="${safe}" alt="${alt}" loading="lazy" onerror="this.closest('.cover').innerHTML='<div class=\"cover-fallback\">封面暂不可用</div>'">`;
+    }
+
+    function appPreview(app, detail = false) {
+      if (!app.coverUrl) return '<div class="cover-fallback">AI 应用</div>';
+      const url = escapeHtml(app.coverUrl);
+      const title = escapeHtml(app.title || '');
+      if (/\.(mp4|webm|mov)(?:$|\?)/i.test(app.coverUrl)) {
+        return `<video ${detail ? 'src' : 'data-preview-src'}="${url}" muted loop playsinline ${detail ? 'controls autoplay' : 'preload="none"'} aria-label="${title}"></video>`;
+      }
+      return `<img src="${url}" alt="${title}" loading="lazy" onerror="this.closest('.cover').innerHTML='<div class=\"cover-fallback\">封面暂不可用</div>'">`;
+    }
+
+    function renderAppExampleInputs(nodes) {
+      const media = appMediaNodes(nodes);
+      if (!media.length) return '<div class="empty">这个应用不需要额外上传图片、视频或音频，主要依靠文字和控制参数生成。</div>';
+      return `<div class="params">${media.map((node, index) => `<div class="param"><code>${escapeHtml(node.description || `${appFieldNames[String(node.fieldType).toUpperCase()] || '媒体'} ${index + 1}`)}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '媒体')} · 示例文件：${escapeHtml(node.fieldValue || '请上传对应素材')}</small><span>上传</span></div>`).join('')}</div>`;
+    }
+
+    function renderAppExamplePrompts(nodes) {
+      const prompts = appPromptNodes(nodes);
+      if (!prompts.length) return '<div class="empty">本地缓存没有识别到可直接复用的示例文字，请根据节点说明填写。</div>';
+      return `<div class="prompt-list">${prompts.map((node, index) => `<details class="prompt-item" ${index === prompts.length - 1 ? 'open' : ''}><summary>${escapeHtml(node.description || `文字输入 ${index + 1}`)}<span>示例文字</span></summary><pre>${escapeHtml(node.fieldValue || '')}</pre></details>`).join('')}</div>`;
     }
 
     function setStatus(element, on, text) {
@@ -455,10 +485,15 @@
       $('#appSummary').textContent = `显示 ${state.appFiltered.length} / ${data.total || data.apps.length} 个 · 第 ${data.page || state.appPage} 页`;
       $('#appCards').innerHTML = state.appFiltered.length ? state.appFiltered.map((app, index) => `
         <article class="card app-card" tabindex="0" data-app-index="${index}">
-          <div class="cover">${appCover(app.coverUrl, app.title)}</div>
-          <div class="app-copy"><div class="card-head"><h3>${escapeHtml(app.title || '未命名应用')}</h3><span class="pill type ${escapeHtml(appOutputType(app, app.nodes || []))}">${escapeHtml(typeNames[appOutputType(app, app.nodes || [])] || appOutputType(app, app.nodes || []))}</span></div><p>${escapeHtml(appDescription(app))}</p><div class="input-summary">点击查看应用公开输入、参数和输出说明</div></div>
+          <div class="cover">${appPreview(app)}${/\.(mp4|webm|mov)(?:$|\?)/i.test(app.coverUrl || '') ? '<span class="preview-badge">悬停预览</span>' : ''}</div>
+          <div class="app-copy"><div class="card-head"><h3>${escapeHtml(app.title || '未命名应用')}</h3><span class="pill type ${escapeHtml(appOutputType(app, app.nodes || []))}">${escapeHtml(typeNames[appOutputType(app, app.nodes || [])] || appOutputType(app, app.nodes || []))}</span></div><p>${escapeHtml(appDescription(app))}</p><div class="input-summary">${escapeHtml(appInputSummary(app.nodes || []))} · 点击查看示例输入与输出</div></div>
         </article>`).join('') : '<div class="empty">当前目录没有可显示的应用。</div>';
       $$('[data-app-index]').forEach(card => {
+        const video = card.querySelector('video[data-preview-src]');
+        if (video) {
+          card.addEventListener('mouseenter', () => { if (!video.src) video.src = video.dataset.previewSrc; video.play().catch(() => {}); });
+          card.addEventListener('mouseleave', () => video.pause());
+        }
         const open = () => openApp(state.appFiltered[Number(card.dataset.appIndex)]);
         card.addEventListener('click', open);
         card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
@@ -487,9 +522,11 @@
         const outputType = appOutputType(app, nodes);
         $('#detailSub').textContent = `${data.nodeCount || nodes.length} 个公开参数 · AI 应用 API`;
         $('#detailBody').innerHTML = `
-          ${app.coverUrl ? `<div class="detail-preview">${appCover(app.coverUrl, app.title)}</div>` : ''}
+          ${app.coverUrl ? `<div class="detail-preview">${appPreview(data, true)}</div>` : ''}
           <div class="pills"><span class="pill type ${escapeHtml(outputType)}">输出：${escapeHtml(typeNames[outputType] || outputType)}</span><span class="pill">${data.nodeCount || nodes.length} 个公开参数</span></div>
           <div class="detail-section"><h3>效果概览</h3><p class="effect-copy">${escapeHtml(data.purpose || appDescription(app))}</p></div>
+          <div class="detail-section"><h3>生成示例需要上传的素材</h3><p class="fine-print">以下是本地缓存中识别到的输入素材；示例文件名来自公开参数，实际调用时请替换成自己的图片、视频或音频。</p>${renderAppExampleInputs(nodes)}</div>
+          <div class="detail-section"><h3>生成示例使用的文字</h3><p class="fine-print">以下文字来自应用公开节点的默认值，可以直接作为测试输入的起点。</p>${renderAppExamplePrompts(nodes)}</div>
           <div class="detail-section"><h3>需要准备的输入</h3><p class="fine-print">${escapeHtml(appInputSummary(nodes))}</p>${media.length ? `<div class="params">${media.map(node => `<div class="param"><code>${escapeHtml(node.description || appFieldNames[String(node.fieldType).toUpperCase()] || '媒体素材')}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '媒体')} · 上传文件</small><span>输入</span></div>`).join('')}</div>` : '<div class="empty">没有识别到需要上传的图片、视频或音频；可能只需要文字或选项参数。</div>'}</div>
           <div class="detail-section"><h3>文字与控制参数</h3>${textParams.length ? `<div class="params">${textParams.map(node => { const options = formatFieldOptions(node.fieldData); return `<div class="param"><code>${escapeHtml(node.description || appFieldNames[String(node.fieldType).toUpperCase()] || '应用参数')}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '')}${node.fieldValue !== undefined ? ` · 当前 ${escapeHtml(JSON.stringify(node.fieldValue))}` : ''}${options ? ` · 选项：${escapeHtml(options)}` : ''}</small><span>可修改</span></div>`; }).join('')}</div>` : '<div class="empty">没有公开文字或控制参数。</div>'}</div>
           <div class="detail-section"><h3>输出说明</h3><p class="fine-print">这个应用主要输出${escapeHtml(typeNames[outputType] || outputType)}。具体时长、尺寸和质量取决于应用的公开参数与输入素材。</p></div>
