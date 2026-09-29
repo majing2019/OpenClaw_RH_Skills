@@ -30,8 +30,8 @@ APP_SCRIPT = SCRIPT_DIR / "runninghub_app.py"
 AI_APP_CATALOG_SCRIPT = SCRIPT_DIR / "ai_app_catalog.py"
 WORKFLOW_SCRIPT = SCRIPT_DIR / "runninghub_workflow.py"
 RHTV_CATALOG_SCRIPT = SCRIPT_DIR / "rhtv_catalog.py"
-COVER_DIR = Path("/tmp/openclaw/rh-output/app_covers")
-ALLOWED_COVER_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+COVER_DIR = SKILL_DIR / "data" / "ai_app_covers"
+ALLOWED_COVER_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".webm", ".mov"}
 APP_SORTS = {"RECOMMEND", "HOTTEST", "NEWEST"}
 
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -66,8 +66,15 @@ class CatalogState:
             data = run_json_command(args, timeout=30)
         for app in data.get("apps", []):
             cover_file = app.pop("coverFile", None)
-            if cover_file:
+            if cover_file and Path(cover_file).is_file() and Path(cover_file).parent == COVER_DIR:
                 app["coverUrl"] = f"/api/covers/{Path(cover_file).name}"
+            elif app.get("coverUrl"):
+                # Older rows may still point at a removed temporary file. Keep
+                # the public RunningHub cover as a safe fallback until the row
+                # is refreshed into the stable local cover directory.
+                app["coverUrl"] = app["coverUrl"]
+            else:
+                app.pop("coverUrl", None)
         self.app_cache[cache_key] = (time.monotonic(), data)
         return data
 
@@ -169,8 +176,8 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 if not webapp_id.isdigit():
                     raise ValueError("Invalid AI Application ID")
                 data = run_json_command(
-                    [sys.executable, str(APP_SCRIPT), "--info", webapp_id],
-                    timeout=60,
+                    [sys.executable, str(AI_APP_CATALOG_SCRIPT), "--get", webapp_id],
+                    timeout=30,
                 )
                 self.send_json(data)
                 return

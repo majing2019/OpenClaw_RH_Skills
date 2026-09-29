@@ -337,13 +337,14 @@ def cmd_list(api_key: str, sort: str, size: int, page: int, days: int):
         app: dict = {
             "title": r.get("title", ""),
             "description": r.get("description", ""),
+            "coverUrl": cover_url,
         }
         if webapp_id:
             app["webappId"] = webapp_id
 
         if cover_url:
             ext = cover_url.split("?")[0].rsplit(".", 1)[-1].lower() if "." in cover_url.split("/")[-1] else "jpg"
-            if ext not in ("jpg", "jpeg", "png", "webp", "gif"):
+            if ext not in ("jpg", "jpeg", "png", "webp", "gif", "mp4", "webm", "mov"):
                 ext = "jpg"
             cover_path = str(cover_dir / f"cover_{sort.lower()}_p{page}_{i+1}.{ext}")
             if _download_cover(cover_url, cover_path):
