@@ -52,9 +52,10 @@ class CatalogState:
             sys.executable, str(AI_APP_CATALOG_SCRIPT), "--list", "--sort", sort,
             "--size", str(size), "--page", str(page), "--days", str(days),
         ]
-        # The local database is the source for normal reads. A refresh first
-        # compares this page with RunningHub and writes only changed records.
-        if force or not cached:
+        # Normal reads never wait on RunningHub: paging is a local SQLite read.
+        # Only the explicit “刷新目录” action performs a remote incremental
+        # sync, so browsing already-cached pages stays instant.
+        if force:
             sync_args = [
                 sys.executable, str(AI_APP_CATALOG_SCRIPT), "--sync", "--sort", sort,
                 "--size", str(size), "--page", str(page), "--days", str(days),
@@ -64,6 +65,7 @@ class CatalogState:
             data["sync"] = synced.get("sync")
         else:
             data = run_json_command(args, timeout=30)
+            data["source"] = "local"
         for app in data.get("apps", []):
             cover_file = app.pop("coverFile", None)
             if cover_file and Path(cover_file).is_file() and Path(cover_file).parent == COVER_DIR:
