@@ -35,3 +35,4 @@ Thumbs.db
 # Runtime catalog databases
 runninghub/data/*.sqlite3
 runninghub/data/*.sqlite3-*
+runninghub/data/ai_app_covers/
