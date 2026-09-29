@@ -412,7 +412,9 @@
       $('#appCards').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
       $('#appSummary').textContent = force ? '正在比对当前公开页并增量更新…' : '正在读取本地目录…';
       try {
-        const data = await fetchJson(`/api/apps?size=24&page=${state.appPage}${force ? '&refresh=1' : ''}`);
+        const outputType = $('#appType').value;
+        const typeQuery = outputType ? `&type=${encodeURIComponent(outputType)}` : '';
+        const data = await fetchJson(`/api/apps?size=24&page=${state.appPage}${typeQuery}${force ? '&refresh=1' : ''}`);
         state.appData = data;
         renderApps();
         if (data.sync) $('#appSummary').textContent += ` · 新增 ${data.sync.created}，更新 ${data.sync.updated}，未变化 ${data.sync.unchanged}`;
@@ -627,8 +629,8 @@
     $('#resetFilters').addEventListener('click', () => { $('#search').value=''; $('#typeFilter').value=''; $('#taskFilter').value=''; applyFilters(); });
     $('#loadApps').addEventListener('click', () => loadApps(true));
     $('#appSearch').addEventListener('input', renderApps);
-    $('#appType').addEventListener('change', renderApps);
-    $('#resetApps').addEventListener('click', () => { $('#appSearch').value=''; $('#appType').value=''; renderApps(); });
+    $('#appType').addEventListener('change', () => { state.appPage = 1; loadApps(); });
+    $('#resetApps').addEventListener('click', () => { $('#appSearch').value=''; $('#appType').value=''; state.appPage = 1; loadApps(); });
     $('#loadRhtv').addEventListener('click', () => loadRhtv(true));
     $('#rhtvSearch').addEventListener('input', applyRhtvFilters);
     $('#rhtvType').addEventListener('change', applyRhtvFilters);

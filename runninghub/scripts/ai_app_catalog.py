@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sqlite3
 import subprocess
 import sys
@@ -191,7 +192,39 @@ def sync_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
     return data
 
 
-def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int) -> dict:
+def app_output_type(title: str, description: str, purpose: str, nodes: list[dict]) -> str:
+    field_types = {str(node.get("fieldType") or "").upper() for node in nodes}
+    haystack = " ".join([title or "", description or "", purpose or ""] + [str(node.get("description") or node.get("fieldName") or "") for node in nodes]).lower()
+    if "VIDEO" in field_types or re.search(r"视频|video|动效|短片|动画", haystack):
+        return "video"
+    if "AUDIO" in field_types or re.search(r"音频|audio|语音|配音|音乐", haystack):
+        return "audio"
+    if re.search(r"3d|三维|模型", haystack):
+        return "3d"
+    if re.search(r"文本|文案|文字|text|caption", haystack):
+        return "text"
+    return "image"
+
+
+def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int, output_type: str = "") -> dict:
+    if output_type:
+        candidates = db.execute("""
+          SELECT webapp_id, title, description, cover_file, cover_url, purpose, node_json, detail_error
+          FROM apps WHERE active=1 ORDER BY last_seen DESC
+        """).fetchall()
+        matched = []
+        for row in candidates:
+            try:
+                nodes = json.loads(row["node_json"] or "[]")
+            except json.JSONDecodeError:
+                nodes = []
+            if app_output_type(row["title"], row["description"], row["purpose"], nodes) == output_type:
+                matched.append(row)
+        total = len(matched)
+        pages = max(1, (total + size - 1) // size)
+        rows = matched[(page - 1) * size: page * size]
+        return {"sort": sort, "page": page, "size": size, "type": output_type, "total": total, "pages": pages, "hasNext": page < pages, "apps": [{"title": r["title"], "description": r["description"], "purpose": r["purpose"], "nodes": json.loads(r["node_json"] or "[]"), "detailError": r["detail_error"], "webappId": r["webapp_id"], "coverFile": r["cover_file"], "coverUrl": r["cover_url"]} for r in rows]}
+
     rows = db.execute("""
       SELECT a.webapp_id, a.title, a.description, a.cover_file, a.cover_url, a.purpose, a.node_json, a.detail_error, p.position
       FROM app_pages p JOIN apps a ON a.webapp_id = p.webapp_id
@@ -221,6 +254,7 @@ def main() -> int:
     parser.add_argument("--size", type=int, default=12)
     parser.add_argument("--page", type=int, default=1)
     parser.add_argument("--days", type=int, default=7)
+    parser.add_argument("--type", choices=("image", "video", "audio", "text", "3d"), default="")
     parser.add_argument("--sync", action="store_true")
     parser.add_argument("--list", action="store_true", help="Read the local cache")
     parser.add_argument("--get", metavar="WEBAPP_ID", help="Read one app and its cached public nodes")
@@ -232,7 +266,7 @@ def main() -> int:
         elif args.sync:
             output = sync_page(db, args.sort, max(1, min(args.size, 50)), max(1, args.page), args.days)
         else:
-            output = list_page(db, args.sort, max(1, min(args.size, 50)), max(1, args.page), args.days)
+            output = list_page(db, args.sort, max(1, min(args.size, 50)), max(1, args.page), args.days, args.type)
         print(json.dumps(output, ensure_ascii=False, indent=2))
     finally:
         db.close()
