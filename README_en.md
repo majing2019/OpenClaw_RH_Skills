@@ -144,7 +144,7 @@ Use `--sync` to compare the public index and write only new or changed workflows
 
 ### Local capability browser
 
-Run `python3 runninghub/scripts/catalog_server.py`, then open the local address it prints (normally `http://127.0.0.1:8765`; a nearby free port is selected automatically if needed). The page has Standard Capabilities, live AI Apps, and RHTV tabs. RHTV is bootstrapped locally on first use; “Refresh Catalog” writes only new or changed records. Each detail view shows a Chinese introduction, inputs, outputs, a local share link, and the official RHTV library entry. Standard and RHTV browsing need no credentials. AI Apps use `RUNNINGHUB_API_KEY`, which stays in the local process and is never returned to the page.
+Run `python3 runninghub/scripts/catalog_server.py`, then open the local address it prints (normally `http://127.0.0.1:8765`; a nearby free port is selected automatically if needed). The page has Standard Capabilities, live AI Apps, and RHTV tabs. RHTV is bootstrapped locally on first use; “Refresh Catalog” writes only new or changed records. Each detail view shows a Chinese introduction, inputs, outputs, and the official RHTV workflow-library entry; it does not generate a local workflow link. Standard and RHTV browsing need no credentials. AI Apps use `RUNNINGHUB_API_KEY`, which stays in the local process and is never returned to the page.
 
 ## Updating Capabilities
 

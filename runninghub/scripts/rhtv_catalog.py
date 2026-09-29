@@ -199,7 +199,7 @@ def normalize_record(record: dict, include_nodes: bool = False) -> dict:
         "nodeCount": len(nodes), "edgeCount": len(edges),
         "outputTypes": sorted({entry["type"] for entry in outputs if entry["type"] != "unknown"}),
         "models": models, "inputs": inputs, "outputs": outputs,
-        "detailPath": f"/?rhtv={record.get('id')}", "sourceUrl": RHTV_LIBRARY_URL,
+        "sourceUrl": RHTV_LIBRARY_URL,
     }
     if include_nodes:
         item["nodes"] = [compact_node(node) for node in nodes]
@@ -242,6 +242,9 @@ def read_cached(connection: sqlite3.Connection, keyword: str = "") -> dict:
         "SELECT payload_json FROM rhtv_workflows WHERE active=1 ORDER BY remote_update_time DESC, id DESC"
     ).fetchall()
     workflows = [json.loads(row["payload_json"]) for row in rows]
+    # Older local databases may contain the retired local detail-link field.
+    for item in workflows:
+        item.pop("detailPath", None)
     normalized_keyword = keyword.casefold().strip()
     if normalized_keyword:
         workflows = [item for item in workflows if normalized_keyword in " ".join([
@@ -316,7 +319,9 @@ def get_detail(workflow_id: str) -> dict:
     with open_database() as connection:
         row = connection.execute("SELECT payload_json FROM rhtv_workflows WHERE id=? AND active=1", (normalized,)).fetchone()
         if row:
-            return json.loads(row["payload_json"])
+            payload = json.loads(row["payload_json"])
+            payload.pop("detailPath", None)
+            return payload
     return normalize_record(post_json(DETAIL_PATH, {"id": normalized}), include_nodes=True)
 
 

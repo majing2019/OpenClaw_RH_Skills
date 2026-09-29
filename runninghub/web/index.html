@@ -137,7 +137,6 @@
     .io-item { padding: 8px 0; border-top: 1px solid #1d3040; }
     .io-item:first-of-type { border-top: 0; }
     .io-item span { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
-    .link-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
     .action-link { display: inline-flex; align-items: center; justify-content: center; min-height: 43px; padding: 9px 14px; border-radius: 11px; color: #071018; background: var(--cyan); text-decoration: none; font-weight: 750; }
     .fine-print { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
     pre { overflow: auto; padding: 15px; border-radius: 12px; background: #050c12; border: 1px solid var(--line); color: #b9f5e4; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -170,7 +169,7 @@
       .notice { align-items: flex-start; flex-direction: column; }
       .param { grid-template-columns: 1fr; gap: 4px; }
       .rhtv-toolbar { grid-template-columns: 1fr; }
-      .io-grid, .link-row { grid-template-columns: 1fr; }
+      .io-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -266,13 +265,6 @@
         $('#loadApps').disabled = !status.apiConfigured;
         populateFilters();
         applyFilters();
-        const requestedRhtv = new URLSearchParams(location.search).get('rhtv');
-        if (requestedRhtv && /^\d+$/.test(requestedRhtv)) {
-          activateTab('rhtv');
-          await loadRhtv();
-          const item = (state.rhtvData?.workflows || []).find(entry => entry.id === requestedRhtv) || { id: requestedRhtv, name: 'RHTV 工作流' };
-          await openRhtv(item, false);
-        }
       } catch (error) {
         setStatus($('#catalogStatus'), false, '目录载入失败');
         $('#capCards').innerHTML = `<div class="empty">${escapeHtml(error.message)}<br>请通过 catalog_server.py 打开此页面。</div>`;
@@ -465,15 +457,13 @@
       return items?.length ? items.map(entry => `<div class="io-item"><b>${escapeHtml(entry.label)}</b><span>${escapeHtml(entry.description || '')}</span>${entry.modelCode ? `<span>模型：${escapeHtml(entry.modelCode)}</span>` : ''}</div>`).join('') : `<span class="fine-print">${escapeHtml(emptyText)}</span>`;
     }
 
-    async function openRhtv(item, updateLocation = true) {
+    async function openRhtv(item) {
       $('#detailTitle').textContent = item.name || 'RHTV 工作流';
       $('#detailSub').textContent = `RHTV 公开目录 #${item.id} · 正在读取节点…`;
       $('#detailBody').innerHTML = '<div class="skeleton"></div>';
       $('#detailDialog').showModal();
       try {
         const data = await fetchJson(`/api/rhtv/workflows/${item.id}`);
-        if (updateLocation) history.replaceState(null, '', data.detailPath || `/?rhtv=${data.id}`);
-        const detailUrl = new URL(data.detailPath || `/?rhtv=${data.id}`, location.origin).href;
         $('#detailSub').textContent = `RHTV 公开目录 #${data.id} · ${data.nodeCount || 0} 个节点 · 只读浏览`;
         $('#detailBody').innerHTML = `
           ${data.thumbnail ? `<div class="detail-preview">${rhtvPreview(data, true)}</div>` : ''}
@@ -484,17 +474,11 @@
             <div class="io-box"><strong>输入</strong>${renderIoItems(data.inputs, '未识别到明确的输入节点')}</div>
             <div class="io-box"><strong>输出</strong>${renderIoItems(data.outputs, '未识别到明确的输出节点')}</div>
           </div></div>
-          <div class="detail-section"><h3>工作流链接</h3>
-            <div class="link-row"><input id="rhtvDetailLink" value="${escapeHtml(detailUrl)}" readonly aria-label="本地工作流详情链接"><button class="ghost" id="copyRhtvLink">复制详情链接</button></div>
-            <p class="fine-print">这是此目录条目的本地永久链接。RHTV 公共目录没有提供每条模板的永久画布直链；选用模板后，RHTV 会创建新的个人画布。</p>
-            <a class="action-link" style="margin-top:10px" href="${escapeHtml(data.sourceUrl)}" target="_blank" rel="noopener noreferrer">打开官方 RHTV 工作流库</a>
+          <div class="detail-section"><h3>官方 RHTV 工作流库</h3>
+            <a class="action-link" href="${escapeHtml(data.sourceUrl)}" target="_blank" rel="noopener noreferrer">打开官方 RHTV 工作流库</a>
           </div>
           <div class="detail-section"><h3>节点结构</h3><div class="params">${(data.nodes || []).map(node => `
             <div class="param"><code>${escapeHtml(node.label || node.type || node.id)}</code><small>${escapeHtml([node.nodeType, node.subType, node.modelCode].filter(Boolean).join(' · '))}</small><span>${escapeHtml(node.id)}</span></div>`).join('') || '<div class="empty">没有可显示的节点。</div>'}</div></div>`;
-        $('#copyRhtvLink').addEventListener('click', async () => {
-          await navigator.clipboard.writeText(detailUrl);
-          $('#copyRhtvLink').textContent = '已复制';
-        });
       } catch (error) {
         $('#detailSub').textContent = '工作流详情读取失败';
         $('#detailBody').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;

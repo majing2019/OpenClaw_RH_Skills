@@ -104,7 +104,7 @@ class RHTVCatalogTests(unittest.TestCase):
         self.assertEqual(data["workflows"][0]["inputs"][0]["type"], "image")
         self.assertEqual(data["workflows"][0]["outputs"][0]["type"], "video")
         self.assertIn("视频创作工作流", data["workflows"][0]["chineseDescription"])
-        self.assertEqual(data["workflows"][0]["detailPath"], "/?rhtv=102")
+        self.assertNotIn("detailPath", data["workflows"][0])
         self.assertNotIn("workflowContent", data["workflows"][0])
         self.assertTrue(Path(self.test_env["RHTV_CATALOG_DB_PATH"]).is_file())
 

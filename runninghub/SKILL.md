@@ -97,7 +97,7 @@ When the user asks to browse RHTV workflows, pastes an `rhtv.runninghub.ai/proje
 
 ## Local Capability Catalog
 
-When the user asks to browse, compare, or inspect all supported capabilities in a visual interface, start `python3 {baseDir}/scripts/catalog_server.py` and open the local address it prints (normally `http://127.0.0.1:8765`; an adjacent free port is selected automatically when needed). The page reads the bundled standard capabilities, delegates live AI Application requests to `runninghub_app.py`, and displays the local incremental RHTV catalog. “刷新目录” compares the public directory and writes only new or changed workflows. Each RHTV detail view shows a Chinese graph-derived introduction, inputs, outputs, a shareable local detail link, and the official RHTV library entry. Credentials remain server-side; browsing RHTV does not require a login token.
+When the user asks to browse, compare, or inspect all supported capabilities in a visual interface, start `python3 {baseDir}/scripts/catalog_server.py` and open the local address it prints (normally `http://127.0.0.1:8765`; an adjacent free port is selected automatically when needed). The page reads the bundled standard capabilities, delegates live AI Application requests to `runninghub_app.py`, and displays the local incremental RHTV catalog. “刷新目录” compares the public directory and writes only new or changed workflows. Each RHTV detail view shows a Chinese graph-derived introduction, inputs, outputs, and the official RHTV workflow-library entry. Do not present a local catalog URL as a workflow link. Credentials remain server-side; browsing RHTV does not require a login token.
 
 ## Script Usage
 
