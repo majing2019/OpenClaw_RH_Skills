@@ -229,7 +229,7 @@
         <label><span hidden>输出类型</span><select id="appType" aria-label="AI 应用输出类型"><option value="">全部输出类型</option><option value="image">图片</option><option value="video">视频</option><option value="audio">音频</option><option value="text">文本</option><option value="3d">3D</option></select></label>
         <button class="ghost" id="resetApps">重置</button>
       </div>
-      <div class="summary"><div><h2>AI 应用</h2><div class="app-controls" style="margin-top:12px"><button class="seg active" data-sort="RECOMMEND">推荐</button><button class="seg" data-sort="HOTTEST">热门</button><button class="seg" data-sort="NEWEST">最新</button></div></div><p id="appSummary"></p></div>
+      <div class="summary"><h2>AI 应用目录</h2><p id="appSummary"></p></div>
       <div class="cards" id="appCards" aria-live="polite"></div>
       <div class="pager" id="appPager" hidden><button class="ghost" id="prevPage">上一页</button><span id="pageLabel"></span><button class="ghost" id="nextPage">下一页</button></div>
     </section>
@@ -255,7 +255,7 @@
   </dialog>
 
   <script>
-    const state = { capabilities: [], filtered: [], status: null, appSort: 'RECOMMEND', appPage: 1, appData: null, appFiltered: [], rhtvData: null, rhtvFiltered: [] };
+    const state = { capabilities: [], filtered: [], status: null, appPage: 1, appData: null, appFiltered: [], rhtvData: null, rhtvFiltered: [] };
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => [...document.querySelectorAll(selector)];
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -408,7 +408,7 @@
       $('#appCards').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
       $('#appSummary').textContent = force ? '正在比对当前公开页并增量更新…' : '正在读取本地目录…';
       try {
-        const data = await fetchJson(`/api/apps?sort=${state.appSort}&size=12&page=${state.appPage}&days=7${force ? '&refresh=1' : ''}`);
+        const data = await fetchJson(`/api/apps?size=12&page=${state.appPage}${force ? '&refresh=1' : ''}`);
         state.appData = data;
         renderApps();
         if (data.sync) $('#appSummary').textContent += ` · 新增 ${data.sync.created}，更新 ${data.sync.updated}，未变化 ${data.sync.unchanged}`;
@@ -423,7 +423,7 @@
       const query = $('#appSearch').value.trim().toLowerCase();
       const type = $('#appType').value;
       state.appFiltered = (data.apps || []).filter(app => {
-        const haystack = [app.title, app.description].join(' ').toLowerCase();
+        const haystack = [app.title, app.description, app.purpose, ...(app.nodes || []).map(node => node.description || node.fieldName || '')].join(' ').toLowerCase();
         return (!query || haystack.includes(query)) && (!type || appOutputType(app) === type);
       });
       $('#appSummary').textContent = `显示 ${state.appFiltered.length} / ${data.total || data.apps.length} 个 · 第 ${data.page || state.appPage} 页`;
@@ -431,7 +431,7 @@
         <article class="card app-card" tabindex="0" data-app-index="${index}">
           <div class="cover">${appCover(app.coverUrl, app.title)}</div>
           <div class="app-copy"><div class="card-head"><h3>${escapeHtml(app.title || '未命名应用')}</h3><span class="pill type ${escapeHtml(appOutputType(app))}">${escapeHtml(typeNames[appOutputType(app)] || appOutputType(app))}</span></div><p>${escapeHtml(appDescription(app))}</p><div class="input-summary">点击查看应用公开输入、参数和输出说明</div></div>
-        </article>`).join('') : '<div class="empty">当前分类没有可显示的应用。</div>';
+        </article>`).join('') : '<div class="empty">当前目录没有可显示的应用。</div>';
       $$('[data-app-index]').forEach(card => {
         const open = () => openApp(state.appFiltered[Number(card.dataset.appIndex)]);
         card.addEventListener('click', open);
@@ -629,7 +629,6 @@
     $('#rhtvSearch').addEventListener('input', applyRhtvFilters);
     $('#rhtvType').addEventListener('change', applyRhtvFilters);
     $('#resetRhtv').addEventListener('click', () => { $('#rhtvSearch').value=''; $('#rhtvType').value=''; applyRhtvFilters(); });
-    $$('.seg').forEach(button => button.addEventListener('click', () => { $$('.seg').forEach(item => item.classList.toggle('active', item === button)); state.appSort = button.dataset.sort; state.appPage = 1; loadApps(); }));
     $('#prevPage').addEventListener('click', () => { if (state.appPage > 1) { state.appPage--; loadApps(); } });
     $('#nextPage').addEventListener('click', () => { state.appPage++; loadApps(); });
     $('.close').addEventListener('click', () => $('#detailDialog').close());
