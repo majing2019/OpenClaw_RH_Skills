@@ -500,6 +500,12 @@
       renderCapabilities();
     }
 
+    function capabilityNumber(item) {
+      if (Number.isInteger(Number(item.catalogNo)) && Number(item.catalogNo) > 0) return Number(item.catalogNo);
+      const index = state.capabilities.findIndex(candidate => candidate.endpoint === item.endpoint);
+      return index >= 0 ? index + 1 : null;
+    }
+
     function renderCapabilities() {
       $('#capSummary').textContent = `显示 ${state.filtered.length} / ${state.capabilities.length} 项`;
       if (!state.filtered.length) {
@@ -508,7 +514,7 @@
       }
       $('#capCards').innerHTML = state.filtered.map((item, index) => `
         <article class="card" tabindex="0" data-cap-index="${index}">
-          <div class="card-head"><h3><span class="pill">标准 #${String(item.catalogNo || index + 1).padStart(3, '0')}</span> ${escapeHtml(item.name_cn || item.name_en || item.endpoint)}</h3><span class="pill type ${escapeHtml(item.output_type)}">${escapeHtml(typeNames[item.output_type] || item.output_type)}</span></div>
+          <div class="card-head"><h3><span class="pill">标准 #${String(capabilityNumber(item) || index + 1).padStart(3, '0')}</span> ${escapeHtml(item.name_cn || item.name_en || item.endpoint)}</h3><span class="pill type ${escapeHtml(item.output_type)}">${escapeHtml(typeNames[item.output_type] || item.output_type)}</span></div>
           <p class="endpoint">${escapeHtml(item.endpoint)}</p>
           <div class="pills"><span class="pill">${escapeHtml(item.task)}</span>${(item.tags || []).slice(0,3).map(tag => `<span class="pill">${escapeHtml(tag)}</span>`).join('')}</div>
           <div class="count" style="margin-top:12px">${(item.params || []).length} 个参数</div>
@@ -521,8 +527,10 @@
     }
 
     function openCapability(item) {
-      $('#detailTitle').textContent = item.name_cn || item.name_en || item.endpoint;
-      $('#detailSub').textContent = `标准 #${String(item.catalogNo || '').padStart(3, '0')} · ${item.endpoint}`;
+      const number = capabilityNumber(item);
+      const catalogLabel = number ? `标准 #${String(number).padStart(3, '0')}` : '标准能力';
+      $('#detailTitle').textContent = `${catalogLabel} · ${item.name_cn || item.name_en || item.endpoint}`;
+      $('#detailSub').textContent = item.endpoint;
       const params = item.params || [];
       const payload = {};
       let hasMedia = params.some(param => ['IMAGE','VIDEO','AUDIO'].includes(String(param.type || '').toUpperCase()));
