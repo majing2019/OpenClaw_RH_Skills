@@ -189,6 +189,23 @@ def get_app_info(api_key: str, webapp_id: str) -> dict:
     }
 
 
+def get_api_example(api_key: str, webapp_id: str) -> tuple[str, str]:
+    """Read only the official API demo payload for bulk catalog checks."""
+    url = f"{API_HOST}{NODE_INFO_PATH}?apiKey={api_key}&webappId={webapp_id}"
+    result = curl_get(url, api_key, timeout=15)
+    body = result.stdout or result.stderr
+    if result.returncode != 0:
+        return "", body[-600:]
+    try:
+        resp = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return "", "官方 API 示例返回了无效 JSON"
+    if resp.get("code") != 0:
+        return "", str(resp.get("msg") or "官方 API 示例不可用")
+    data = resp.get("data") or {}
+    return _sanitize_api_example(data.get("curl") or data.get("invokeExample") or ""), ""
+
+
 def get_node_info(api_key: str, webapp_id: str) -> list[dict]:
     """Backward-compatible node-only helper used by the runner."""
     return get_app_info(api_key, webapp_id)["nodes"]
