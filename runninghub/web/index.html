@@ -490,7 +490,7 @@
     async function loadApps(force = false) {
       if (!state.status?.apiConfigured) return;
       $('#appCards').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
-      $('#appSummary').textContent = force ? '正在比对当前公开页并增量更新…' : '正在读取本地目录…';
+      $('#appSummary').textContent = force ? '正在刷新当前页应用详情…' : '正在读取本地目录…';
       try {
         const outputType = $('#appType').value;
         const typeQuery = outputType ? `&type=${encodeURIComponent(outputType)}` : '';

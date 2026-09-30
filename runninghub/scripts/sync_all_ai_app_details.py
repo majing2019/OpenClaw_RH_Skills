@@ -16,20 +16,9 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import ai_app_catalog  # noqa: E402
 
 
-def input_specs(nodes: list[dict]) -> list[dict]:
-    """Keep the exact public values needed to reproduce a test invocation."""
-    result = []
-    for node in nodes:
-        result.append({key: node.get(key) for key in (
-            "nodeId", "nodeName", "fieldName", "fieldType", "fieldValue",
-            "fieldData", "description", "descriptionCn", "descriptionEn",
-        ) if key in node})
-    return result
-
-
-def fetch_one(webapp_id: str) -> tuple[str, list[dict], str]:
-    nodes, error = ai_app_catalog.fetch_detail(webapp_id)
-    return webapp_id, nodes, error
+def fetch_one(webapp_id: str) -> tuple[str, list[dict], str, dict]:
+    nodes, error, metadata = ai_app_catalog.fetch_detail(webapp_id)
+    return webapp_id, nodes, error, metadata
 
 
 def main() -> int:
@@ -52,25 +41,43 @@ def main() -> int:
     workers = max(1, min(args.workers, 10))
     row_by_id = {row["webapp_id"]: row for row in rows}
 
-    def save_result(index: int, webapp_id: str, nodes: list[dict], error: str):
+    def save_result(index: int, webapp_id: str, nodes: list[dict], error: str, metadata: dict):
         nonlocal ok, failed
         row = row_by_id[webapp_id]
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        app = {"title": row["title"], "description": row["description"], "purpose": row["purpose"]}
-        purpose = ai_app_catalog.infer_purpose(app, nodes)
-        db.execute("""UPDATE apps SET node_json=?,test_inputs=?,detail_error=?,purpose=?,detail_fetched_at=?,last_seen=? WHERE webapp_id=?""",
-                   (json.dumps(nodes, ensure_ascii=False), json.dumps(input_specs(nodes), ensure_ascii=False), error, purpose, now, now, webapp_id))
-        db.commit()
         if error:
+            # Record the failure while retaining the app's last complete data
+            # snapshot. Leave detail_fetched_at empty/unchanged so retries can
+            # pick this app up again.
+            db.execute("UPDATE apps SET detail_error=? WHERE webapp_id=?", (error, webapp_id))
+            db.commit()
             failed += 1
-        else:
-            ok += 1
+            if index == 1 or index % 10 == 0:
+                print(f"details {index}/{total} ok={ok} failed={failed} last={webapp_id}", flush=True)
+            return
+        app = {"title": row["title"], "description": row["description"], "purpose": row["purpose"]}
+        purpose = ai_app_catalog.infer_purpose(app, nodes, metadata)
+        official_description = ai_app_catalog.clean_html(metadata.get("description") or "")
+        tags_json = json.dumps(metadata.get("tags") or [], ensure_ascii=False)
+        covers_json = json.dumps(metadata.get("covers") or [], ensure_ascii=False)
+        api_example = str(metadata.get("apiExample") or "")
+        api_enabled = 1 if (metadata.get("apiEnabled") or api_example) else 0
+        output_type = ai_app_catalog.app_output_type(row["title"], row["description"], purpose, nodes)
+        nodes_json = json.dumps(nodes, ensure_ascii=False)
+        inputs_json = json.dumps(ai_app_catalog.test_input_specs(nodes), ensure_ascii=False)
+        db.execute("""UPDATE apps SET node_json=?,test_inputs=?,detail_error='',purpose=?,detail_fetched_at=?,last_seen=?,
+                      official_description=?,tags_json=?,covers_json=?,api_enabled=?,api_example=?,api_checked_at=?,output_type=?
+                      WHERE webapp_id=?""",
+                   (nodes_json, inputs_json, purpose, now, now, official_description, tags_json,
+                    covers_json, api_enabled, api_example, now, output_type, webapp_id))
+        db.commit()
+        ok += 1
         if index == 1 or index % 10 == 0:
             print(f"details {index}/{total} ok={ok} failed={failed} last={webapp_id}", flush=True)
 
     if workers == 1:
         for index, row in enumerate(rows, 1):
-            save_result(index, *fetch_one(row["webapp_id"])[0:3])
+            save_result(index, *fetch_one(row["webapp_id"]))
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [pool.submit(fetch_one, row["webapp_id"]) for row in rows]

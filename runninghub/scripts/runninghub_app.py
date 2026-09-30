@@ -169,14 +169,7 @@ def get_app_info(api_key: str, webapp_id: str) -> dict:
         sys.exit(1)
 
     data = resp.get("data", {}) or {}
-    node_list = data.get("nodeInfoList", [])
-    if not node_list:
-        print(json.dumps({
-            "error": "NO_NODES",
-            "message": "No modifiable nodes found for this AI app. "
-                       "Make sure the app has been run at least once on the web.",
-        }, ensure_ascii=False), file=sys.stderr)
-        sys.exit(1)
+    node_list = data.get("nodeInfoList", []) or []
 
     return {
         "nodes": node_list,

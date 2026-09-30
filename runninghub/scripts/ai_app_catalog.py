@@ -285,8 +285,6 @@ def sync_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
                             app.get("coverUrl", ""), "", "[]", detail_error, "", now, now,
                             listing_api_enabled, listing_api_example, output_type))
                 created += 1
-            else:
-                unchanged += 1
             db.execute("INSERT INTO app_pages(sort_name,webapp_id,page,position,last_seen) VALUES(?,?,?,?,?) ON CONFLICT(sort_name,webapp_id) DO UPDATE SET page=excluded.page,position=excluded.position,last_seen=excluded.last_seen",
                        (sort, webapp_id, page, position, now))
             continue
@@ -296,7 +294,9 @@ def sync_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
         official_description = clean_html(metadata.get("description") or "")
         tags_json = json.dumps(metadata.get("tags") or [], ensure_ascii=False)
         covers_json = json.dumps(metadata.get("covers") or [], ensure_ascii=False)
-        api_example = str(app.get("apiExample") or metadata.get("apiExample") or "")
+        # The AI detail endpoint is the source of truth for API availability
+        # and its call example; avoid carrying forward a stale list-page value.
+        api_example = str(metadata.get("apiExample") or "")
         api_enabled = 1 if (metadata.get("apiEnabled") or api_example) else 0
         output_type = app_output_type(app.get("title", ""), app.get("description", ""), purpose, nodes)
         api_checked_at = now
@@ -305,6 +305,7 @@ def sync_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
         changed = current is None or any((
             current["title"] != app.get("title", ""),
             current["description"] != app.get("description", ""),
+            current["cover_file"] != cover_file,
             current["cover_url"] != app.get("coverUrl", ""),
             current["purpose"] != purpose,
             current["node_json"] != nodes_json,
