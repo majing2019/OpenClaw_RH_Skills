@@ -25,6 +25,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Sequential full AI app detail sync")
     parser.add_argument("--db", default=str(ai_app_catalog.DB_PATH))
     parser.add_argument("--retry-errors", action="store_true")
+    parser.add_argument("--refresh-all", action="store_true", help="Refresh details for every active app")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--workers", type=int, default=1, help="Concurrent detail requests")
     args = parser.parse_args()
@@ -32,13 +33,13 @@ def main() -> int:
     db.execute("ALTER TABLE apps ADD COLUMN test_inputs TEXT NOT NULL DEFAULT '[]'") if "test_inputs" not in {r[1] for r in db.execute("PRAGMA table_info(apps)")} else None
     db.execute("ALTER TABLE apps ADD COLUMN detail_fetched_at TEXT NOT NULL DEFAULT ''") if "detail_fetched_at" not in {r[1] for r in db.execute("PRAGMA table_info(apps)")} else None
     db.commit()
-    where = "detail_fetched_at=''" if not args.retry_errors else "(detail_fetched_at='' OR detail_error!='')"
+    where = "1=1" if args.refresh_all else "detail_fetched_at=''" if not args.retry_errors else "(detail_fetched_at='' OR detail_error!='')"
     rows = db.execute(f"SELECT webapp_id,title,description,purpose,detail_error FROM apps WHERE active=1 AND {where} ORDER BY rowid").fetchall()
     if args.limit:
         rows = rows[:args.limit]
     total = len(rows)
     ok = failed = 0
-    workers = max(1, min(args.workers, 10))
+    workers = max(1, min(args.workers, 20))
     row_by_id = {row["webapp_id"]: row for row in rows}
 
     def save_result(index: int, webapp_id: str, nodes: list[dict], error: str, metadata: dict):

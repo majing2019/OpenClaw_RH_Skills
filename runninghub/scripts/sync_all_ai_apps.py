@@ -38,6 +38,7 @@ def fetch_page(api_key: str, sort: str, page: int, size: int, days: int, retries
 
 def upsert_page(db: sqlite3.Connection, data: dict, sort: str, remote_page: int, source_size: int) -> int:
     records = data.get("records", [])
+    created = 0
     for index, record in enumerate(records):
         webapp_id = runninghub_app._extract_webapp_id(record.get("invokeExample", ""))
         if not webapp_id:
@@ -59,6 +60,7 @@ def upsert_page(db: sqlite3.Connection, data: dict, sort: str, remote_page: int,
         else:
             db.execute("""INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active,output_type)
                           VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?)""", (webapp_id, title, description, "", cover_url, "", "[]", "", "", now, now, output_type))
+            created += 1
 
         global_position = (remote_page - 1) * source_size + index
         local_page = global_position // 24 + 1
@@ -66,7 +68,7 @@ def upsert_page(db: sqlite3.Connection, data: dict, sort: str, remote_page: int,
         db.execute("""INSERT INTO app_pages(sort_name,webapp_id,page,position,last_seen) VALUES(?,?,?,?,?)
                      ON CONFLICT(sort_name,webapp_id) DO UPDATE SET page=excluded.page,position=excluded.position,last_seen=excluded.last_seen""",
                     (sort, webapp_id, local_page, local_position, now))
-    return len(records)
+    return created
 
 
 def main() -> int:
@@ -87,11 +89,8 @@ def main() -> int:
 
     db = ai_app_catalog.connect(Path(args.db))
     try:
-        # Existing app page positions from smaller page sizes cannot be mixed
-        # with the full snapshot. Records themselves remain reusable.
-        if args.start_page == 1:
-            db.execute("DELETE FROM app_pages WHERE sort_name=?", (args.sort,))
-            db.commit()
+        # Keep the existing page index intact until every remote page has been
+        # fetched and validated successfully.
         _, first = fetch_page(api_key, args.sort, max(1, args.start_page), size, args.days, 2)
         total = int(first.get("total", 0))
         pages = int(first.get("pages", 0))
@@ -108,16 +107,36 @@ def main() -> int:
                 completed += 1
                 if completed % 10 == 0:
                     print(f"fetched {completed + 1}/{len(pending)} pages", flush=True)
+        for page, data in results.items():
+            records = data.get("records")
+            if not isinstance(records, list):
+                raise RuntimeError(f"page {page}: response has no record list")
+            if any(not isinstance(record, dict) for record in records):
+                raise RuntimeError(f"page {page}: response contains an invalid app record")
+            expected = max(0, min(size, total - (page - 1) * size))
+            if len(records) != expected:
+                raise RuntimeError(f"page {page}: received {len(records)} records, expected {expected}; local index was kept")
+        if args.start_page == 1 and end_page == pages:
+            expected_pages = (total + size - 1) // size
+            if pages != expected_pages:
+                raise RuntimeError(f"directory reports {pages} pages, expected {expected_pages}; local index was kept")
+            all_ids = [runninghub_app._extract_webapp_id(record.get("invokeExample", ""))
+                       for data in results.values() for record in data["records"]]
+            if len(all_ids) != total or any(not webapp_id for webapp_id in all_ids) or len(set(all_ids)) != total:
+                raise RuntimeError("full directory scan contains missing or duplicate app IDs; local index was kept")
+        if args.start_page == 1:
+            db.execute("DELETE FROM app_pages WHERE sort_name=?", (args.sort,))
+        created = 0
         for page in sorted(results):
-            upsert_page(db, results[page], args.sort, page, size)
+            created += upsert_page(db, results[page], args.sort, page, size)
             if page % 20 == 0:
-                db.commit()
                 print(f"stored page {page}/{end_page}", flush=True)
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         db.execute("INSERT INTO sync_runs(sort_name,page,size,remote_total,remote_pages,created,updated,unchanged,synced_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                    (args.sort, 1, 24, total, (total + 23) // 24, 0, 0, total, now))
+                    (args.sort, 1, 24, total, (total + 23) // 24, created, 0, max(0, total - created), now))
         db.commit()
-        print(json.dumps({"sort": args.sort, "total": total, "remotePages": pages, "storedPages": end_page, "workers": workers}, ensure_ascii=False))
+        print(json.dumps({"sort": args.sort, "total": total, "created": created,
+                          "remotePages": pages, "storedPages": end_page, "workers": workers}, ensure_ascii=False))
     finally:
         db.close()
     return 0

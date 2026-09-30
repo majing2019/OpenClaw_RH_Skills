@@ -10,11 +10,14 @@ local process/config and are never returned to the browser.
 from __future__ import annotations
 
 import argparse
+import copy
 import errno
 import json
 import mimetypes
+import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from urllib.parse import quote
@@ -101,6 +104,97 @@ class CatalogState:
 
 
 STATE = CatalogState()
+APP_REFRESH_LOCK = threading.Lock()
+APP_REFRESH_JOB = {
+    "running": False, "phase": "idle", "message": "尚未执行全部刷新",
+    "processed": 0, "total": 0, "listTotal": 0, "details": None,
+    "error": "", "startedAt": "", "finishedAt": "",
+}
+
+
+def refresh_job_snapshot() -> dict:
+    with APP_REFRESH_LOCK:
+        return copy.deepcopy(APP_REFRESH_JOB)
+
+
+def _set_refresh_job(**values):
+    with APP_REFRESH_LOCK:
+        APP_REFRESH_JOB.update(values)
+
+
+def _run_refresh_command(args: list[str], phase: str, initial_total: int = 0) -> dict:
+    _set_refresh_job(phase=phase, message="正在读取远程目录…" if phase == "listing" else "正在刷新每个应用的详情…",
+                     processed=0, total=initial_total)
+    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               text=True, bufsize=1)
+    final = {}
+    last_line = ""
+    if process.stdout:
+        for line in process.stdout:
+            last_line = line.strip()
+            if last_line.startswith("{"):
+                try:
+                    value = json.loads(last_line)
+                    if isinstance(value, dict):
+                        final = value
+                except json.JSONDecodeError:
+                    pass
+            if phase == "listing":
+                match = re.search(r"(?:fetched|stored page)\s+(\d+)/(\d+) pages?", last_line)
+                if match:
+                    _set_refresh_job(message="正在扫描全部远程应用…", processed=int(match.group(1)), total=int(match.group(2)))
+            else:
+                match = re.search(r"details\s+(\d+)/(\d+)\s+ok=(\d+)\s+failed=(\d+)", last_line)
+                if match:
+                    _set_refresh_job(message=f"正在刷新应用详情…成功 {match.group(3)}，失败 {match.group(4)}",
+                                     processed=int(match.group(1)), total=int(match.group(2)))
+    return_code = process.wait()
+    if return_code:
+        raise RuntimeError(last_line or f"refresh command failed ({return_code})")
+    return final
+
+
+def _run_full_ai_app_refresh():
+    started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        list_result = _run_refresh_command(
+            [sys.executable, str(SCRIPT_DIR / "sync_all_ai_apps.py"), "--sort", "RECOMMEND",
+             "--size", "50", "--workers", "12"], "listing")
+        import sqlite3
+        db_path = SKILL_DIR / "data" / "ai_apps.sqlite3"
+        with sqlite3.connect(db_path) as db:
+            count = db.execute("SELECT COUNT(*) FROM apps WHERE active=1").fetchone()[0]
+        _set_refresh_job(phase="details", listTotal=int(list_result.get("total", 0)), processed=0,
+                         total=count, message=f"远程目录已扫描 {list_result.get('total', 0)} 个，正在逐个刷新本地应用详情…")
+        details_result = _run_refresh_command(
+            [sys.executable, str(SCRIPT_DIR / "sync_all_ai_app_details.py"), "--refresh-all", "--workers", "20"],
+            "details", count)
+        failed = int(details_result.get("failed", 0))
+        summary = (f"全部刷新完成：远程目录 {list_result.get('total', 0)} 个，新增收录 {list_result.get('created', 0)} 个；"
+                   f"详情成功 {details_result.get('ok', 0)} 个，"
+                   f"失败 {failed} 个（失败项保留原有完整数据，可再次刷新重试）。")
+        _set_refresh_job(running=False, phase="done", message=summary,
+                         processed=int(details_result.get("total", 0)), total=int(details_result.get("total", 0)),
+                         listTotal=int(list_result.get("total", 0)), details=details_result,
+                         finishedAt=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+        STATE.app_cache.clear()
+    except Exception as exc:
+        _set_refresh_job(running=False, phase="error", message="全部刷新中断；已完成的单条记录保留，可重新启动继续刷新。",
+                         error=str(exc), finishedAt=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+
+
+def start_full_ai_app_refresh() -> dict:
+    if not resolve_api_key(None):
+        raise RuntimeError("未检测到 RunningHub API Key")
+    with APP_REFRESH_LOCK:
+        if APP_REFRESH_JOB["running"]:
+            return copy.deepcopy(APP_REFRESH_JOB)
+        APP_REFRESH_JOB.update({"running": True, "phase": "listing", "message": "准备扫描全部远程应用…",
+                                "processed": 0, "total": 0, "listTotal": 0, "details": None,
+                                "error": "", "startedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                "finishedAt": ""})
+    threading.Thread(target=_run_full_ai_app_refresh, daemon=True, name="ai-app-full-refresh").start()
+    return refresh_job_snapshot()
 
 
 def run_json_command(args: list[str], timeout: int) -> dict:
@@ -223,6 +317,9 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 force = query.get("refresh", ["0"])[0] == "1"
                 self.send_json(STATE.get_apps(sort, size, page, days, output_type=output_type, api_status=api_status, force=force))
                 return
+            if parsed.path == "/api/apps/refresh-all":
+                self.send_json(refresh_job_snapshot())
+                return
             if parsed.path.startswith("/api/apps/"):
                 webapp_id = parsed.path.removeprefix("/api/apps/")
                 if not webapp_id.isdigit():
@@ -285,6 +382,18 @@ class CatalogHandler(BaseHTTPRequestHandler):
             status = HTTPStatus.BAD_REQUEST if isinstance(exc, ValueError) else HTTPStatus.BAD_GATEWAY
             self.send_json({"error": type(exc).__name__, "message": str(exc)}, status)
         except Exception as exc:  # Keep request failures from terminating the local server.
+            self.send_json({"error": "CatalogError", "message": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/apps/refresh-all":
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        try:
+            self.send_json(start_full_ai_app_refresh(), HTTPStatus.ACCEPTED)
+        except RuntimeError as exc:
+            self.send_json({"error": "RefreshUnavailable", "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+        except Exception as exc:
             self.send_json({"error": "CatalogError", "message": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
