@@ -217,7 +217,7 @@
         <label class="field"><span class="search-icon" aria-hidden="true">⌕</span><input id="search" type="search" placeholder="搜索名称、任务、端点或标签" aria-label="搜索能力"></label>
         <label><span hidden>输出类型</span><select id="typeFilter" aria-label="输出类型"><option value="">全部输出类型</option></select></label>
         <label><span hidden>任务类型</span><select id="taskFilter" aria-label="任务类型"><option value="">全部任务</option></select></label>
-        <button class="ghost" id="resetFilters">重置</button>
+        <div class="app-controls"><button class="ghost" id="refreshCapabilities">刷新目录</button><button class="ghost" id="resetFilters">重置</button></div>
       </div>
       <div class="summary"><h2>可用能力</h2><p id="capSummary">正在读取目录…</p></div>
       <div class="cards" id="capCards" aria-live="polite"></div>
@@ -260,7 +260,7 @@
   </dialog>
 
   <script>
-    const state = { capabilities: [], filtered: [], status: null, appPage: 1, appData: null, appFiltered: [], rhtvData: null, rhtvFiltered: [] };
+    const state = { capabilities: [], capabilityVersion: '', filtered: [], status: null, appPage: 1, appData: null, appFiltered: [], rhtvData: null, rhtvFiltered: [] };
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => [...document.querySelectorAll(selector)];
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -413,7 +413,8 @@
         const [status, catalog] = await Promise.all([fetchJson('/api/status'), fetchJson('/api/capabilities')]);
         state.status = status;
         state.capabilities = catalog.endpoints || [];
-        setStatus($('#catalogStatus'), true, `${catalog.total || state.capabilities.length} 项 · ${catalog.version || '本地目录'}`);
+        state.capabilityVersion = catalog.version || '';
+        setStatus($('#catalogStatus'), true, `${catalog.total || state.capabilities.length} 项 · ${state.capabilityVersion || '本地目录'}`);
         setStatus($('#apiStatus'), status.apiConfigured, status.apiConfigured ? 'AI 应用已连接' : 'AI 应用未配置');
         setStatus($('#rhtvStatus'), false, 'RHTV 本地目录待加载');
         $('#appNoticeText').textContent = status.apiConfigured ? '已检测到本地 API Key，可加载 RunningHub 当前公开应用。' : '需要在启动服务前设置 RUNNINGHUB_API_KEY；密钥不会传给网页。';
@@ -432,10 +433,31 @@
     }
 
     function populateFilters() {
+      $('#typeFilter').querySelectorAll('option:not(:first-child)').forEach(option => option.remove());
+      $('#taskFilter').querySelectorAll('option:not(:first-child)').forEach(option => option.remove());
       const types = [...new Set(state.capabilities.map(item => item.output_type).filter(Boolean))].sort();
       const tasks = [...new Set(state.capabilities.map(item => item.task).filter(Boolean))].sort();
       $('#typeFilter').insertAdjacentHTML('beforeend', types.map(type => `<option value="${escapeHtml(type)}">${escapeHtml(typeNames[type] || type)}</option>`).join(''));
       $('#taskFilter').insertAdjacentHTML('beforeend', tasks.map(task => `<option value="${escapeHtml(task)}">${escapeHtml(task)}</option>`).join(''));
+    }
+
+    async function refreshCapabilities() {
+      const button = $('#refreshCapabilities');
+      button.disabled = true;
+      $('#capSummary').textContent = '正在重新读取本地标准能力目录…';
+      try {
+        const catalog = await fetchJson(`/api/capabilities?refresh=${Date.now()}`);
+        state.capabilities = catalog.endpoints || [];
+        state.capabilityVersion = catalog.version || '';
+        populateFilters();
+        applyFilters();
+        setStatus($('#catalogStatus'), true, `${catalog.total || state.capabilities.length} 项 · ${state.capabilityVersion || '本地目录'}`);
+        $('#capSummary').textContent = `目录已刷新：${state.filtered.length} / ${state.capabilities.length} 项 · 版本 ${state.capabilityVersion || '本地'}`;
+      } catch (error) {
+        $('#capSummary').textContent = `刷新失败：${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
     }
 
     function applyFilters() {
@@ -473,8 +495,44 @@
       $('#detailTitle').textContent = item.name_cn || item.name_en || item.endpoint;
       $('#detailSub').textContent = item.endpoint;
       const params = item.params || [];
+      const payload = {};
+      let hasMedia = params.some(param => ['IMAGE','VIDEO','AUDIO'].includes(String(param.type || '').toUpperCase()));
+      for (const param of params) {
+        const type = String(param.type || '').toUpperCase();
+        const hasDefault = Object.prototype.hasOwnProperty.call(param, 'default');
+        if (!param.required && !hasDefault) continue;
+        let value;
+        if (hasDefault) value = param.default;
+        else if (['IMAGE','VIDEO','AUDIO'].includes(type)) {
+          const placeholder = type === 'IMAGE' ? 'https://example.com/replace-with-image.png' : type === 'VIDEO' ? 'https://example.com/replace-with-video.mp4' : 'https://example.com/replace-with-audio.mp3';
+          value = param.multiple ? [placeholder] : placeholder;
+        } else if (['LIST','SIZE'].includes(type)) value = (param.options || [])[0] ?? 'REPLACE_WITH_ALLOWED_OPTION';
+        else if (type === 'BOOLEAN') value = false;
+        else if (type === 'INT') value = Number.isFinite(param.min) ? param.min : 1;
+        else if (type === 'FLOAT') value = Number.isFinite(param.min) ? param.min : 1.0;
+        else if (type === 'STRING') value = /prompt|text|description/i.test(param.key) ? 'Describe the content you want to generate' : `REPLACE_WITH_${param.key}`;
+        else value = `REPLACE_WITH_${param.key}`;
+        payload[param.key] = value;
+      }
+      const payloadJson = JSON.stringify(payload, null, 2);
+      const submitExample = [
+        `curl --request POST 'https://www.runninghub.cn/openapi/v2/${item.endpoint}' \\`,
+        "  --header 'Authorization: Bearer $RUNNINGHUB_API_KEY' \\",
+        "  --header 'Content-Type: application/json' \\",
+        "  --data-binary @- <<'JSON'",
+        payloadJson,
+        'JSON',
+      ].join('\n');
+      const queryExample = `curl --request POST 'https://www.runninghub.cn/openapi/v2/query' --header 'Authorization: Bearer $RUNNINGHUB_API_KEY' --header 'Content-Type: application/json' --data '{"taskId":"<上一步返回的 taskId>"}'`;
       $('#detailBody').innerHTML = `
         <div class="pills"><span class="pill type ${escapeHtml(item.output_type)}">${escapeHtml(typeNames[item.output_type] || item.output_type)}</span><span class="pill">${escapeHtml(item.task)}</span><span class="pill">${escapeHtml(item.category || '未分类')}</span></div>
+        <div class="detail-section"><h3>如何调用这个 API</h3>
+          <p class="fine-print">先设置环境变量 <code>RUNNINGHUB_API_KEY</code>。请求方式为 POST，endpoint 和参数名来自本地能力定义。示例只填入必填参数与官方默认值；请替换 REPLACE_WITH_* 和示例素材 URL。${hasMedia ? '本地图片、视频或音频需先上传到 RunningHub，再把返回的 download_url 填入对应字段。' : ''}</p>
+          ${hasMedia ? `<pre class="api-example">curl --request POST 'https://www.runninghub.cn/openapi/v2/media/upload/binary' --header 'Authorization: Bearer $RUNNINGHUB_API_KEY' --form 'file=@./your-media-file'</pre><p class="fine-print">从上传响应的 data.download_url 取地址，替换请求体里的示例媒体 URL。</p>` : ''}
+          <p class="fine-print">① 提交任务（返回 taskId）</p><pre class="api-example">${escapeHtml(submitExample)}</pre>
+          <p class="fine-print">② 用 taskId 查询任务；重复查询直到 status 为 SUCCESS、FAILED 或 CANCEL。成功结果在 results 中。</p><pre class="api-example">${escapeHtml(queryExample)}</pre>
+          <a class="action-link" href="https://www.runninghub.cn/call-api/standard-api" target="_blank" rel="noopener noreferrer">查看 RunningHub 标准 API 文档</a>
+        </div>
         <div class="params">${params.length ? params.map(param => `
           <div class="param"><code>${escapeHtml(param.key)}</code><small>${escapeHtml(formatParam(param))}</small><span class="${param.required ? 'required' : ''}">${param.required ? '必填' : '可选'}</span></div>`).join('') : '<div class="empty">该端点没有公开参数。</div>'}</div>`;
       $('#detailDialog').showModal();
@@ -754,6 +812,7 @@
     ['input','change'].forEach(event => $('#search').addEventListener(event, applyFilters));
     $('#typeFilter').addEventListener('change', applyFilters);
     $('#taskFilter').addEventListener('change', applyFilters);
+    $('#refreshCapabilities').addEventListener('click', refreshCapabilities);
     $('#resetFilters').addEventListener('click', () => { $('#search').value=''; $('#typeFilter').value=''; $('#taskFilter').value=''; applyFilters(); });
     $('#loadApps').addEventListener('click', () => loadApps(true));
     $('#refreshAllApps').addEventListener('click', refreshAllApps);
