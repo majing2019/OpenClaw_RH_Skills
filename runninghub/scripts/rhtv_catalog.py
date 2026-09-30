@@ -447,13 +447,29 @@ def list_page(page: int, size: int) -> dict:
 
 def fetch_all_records() -> tuple[list[dict], int]:
     first = list_page(1, MAX_PAGE_SIZE)
-    records = list(first.get("records") or [])
+    first_records = first.get("records")
+    if not isinstance(first_records, list):
+        raise CatalogError("RHTV catalog page 1 did not contain a record list")
+    records = list(first_records)
     pages = max(1, int(first.get("pages") or 1))
+    remote_total = int(first.get("total") or len(records))
     if pages > 1:
         with ThreadPoolExecutor(max_workers=min(4, pages - 1)) as executor:
-            for result in executor.map(lambda page: list_page(page, MAX_PAGE_SIZE), range(2, pages + 1)):
-                records.extend(result.get("records") or [])
-    return [record for record in records if isinstance(record, dict)], int(first.get("total") or len(records))
+            for page, result in zip(range(2, pages + 1), executor.map(lambda page: list_page(page, MAX_PAGE_SIZE), range(2, pages + 1))):
+                page_records = result.get("records")
+                if not isinstance(page_records, list):
+                    raise CatalogError(f"RHTV catalog page {page} did not contain a record list")
+                records.extend(page_records)
+    if len(records) != remote_total:
+        raise CatalogError(
+            f"RHTV catalog is incomplete ({len(records)} records received, {remote_total} expected); local snapshot was kept"
+        )
+    if any(not isinstance(record, dict) or not str(record.get("id") or "") for record in records):
+        raise CatalogError("RHTV catalog contains a record without a valid ID; local snapshot was kept")
+    record_ids = [str(record["id"]) for record in records]
+    if len(set(record_ids)) != len(record_ids):
+        raise CatalogError("RHTV catalog contains duplicate IDs; local snapshot was kept")
+    return records, remote_total
 
 
 def latest_sync(connection: sqlite3.Connection) -> dict | None:
@@ -505,6 +521,15 @@ def sync_catalog(keyword: str = "") -> dict:
                 unchanged += 1
                 continue
             payload = normalize_record(record, include_nodes=True)
+            if previous:
+                old_row = connection.execute(
+                    "SELECT payload_json FROM rhtv_workflows WHERE id=?", (workflow_id,)
+                ).fetchone()
+                old_payload = json.loads(old_row["payload_json"]) if old_row else {}
+                if old_payload.get("canvasNodeCount", 0) and not payload.get("canvasNodeCount", 0):
+                    raise CatalogError(
+                        f"RHTV workflow {workflow_id} lost its canvas data in the refresh response; local snapshot was kept"
+                    )
             serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
             if previous:
                 connection.execute(

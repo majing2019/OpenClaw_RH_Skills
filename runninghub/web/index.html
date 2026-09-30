@@ -241,7 +241,7 @@
 
     <section class="view" id="rhtv" role="tabpanel" hidden>
       <div class="notice">
-        <div><strong>RHTV 工作流目录</strong><span>公开目录增量保存到本地数据库；刷新时只写入新增或有变化的工作流。</span></div>
+        <div><strong>RHTV 工作流目录</strong><span>公开目录增量保存；每条工作流按完整快照更新，目录不完整或画布数据缺失时保留本地旧记录。</span></div>
         <button class="primary" id="loadRhtv">刷新目录</button>
       </div>
       <div class="toolbar rhtv-toolbar">
