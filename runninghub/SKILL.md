@@ -20,6 +20,7 @@ AI App Script: `python3 {baseDir}/scripts/runninghub_app.py`
 AI App Catalog Script: `python3 {baseDir}/scripts/ai_app_catalog.py` (`--list` reads the local SQLite cache; `--sync` incrementally refreshes the requested public page)
 Workflow Script: `python3 {baseDir}/scripts/runninghub_workflow.py`
 RHTV Catalog Script: `python3 {baseDir}/scripts/rhtv_catalog.py` (`--list` reads the cache; `--sync` refreshes it)
+API Lookup Script: `python3 {baseDir}/scripts/api_lookup.py --number N [--kind standard|app]`
 Capability Catalog: `python3 {baseDir}/scripts/catalog_server.py`
 Data: `{baseDir}/data/capabilities.json`
 
@@ -98,6 +99,8 @@ When the user asks to browse RHTV workflows, pastes an `rhtv.runninghub.ai/proje
 
 ## Local Capability Catalog
 
+The browser numbers standard capabilities as `标准 #001` and AI applications as `应用 #00001`. These numbers remain stable across filtering, pagination, and catalog refreshes. Each detail view provides a one-click copy control for its cached API example. When the user asks for an API method by number, run `python3 {baseDir}/scripts/api_lookup.py --number N --kind standard` for a standard capability or `--kind app` for an AI application. If the category is omitted, the lookup returns matching entries from both catalogs. Return a cached official AI app request example when available; otherwise say it is not cached and give the official API page instead of inventing request parameters.
+
 When the user asks to browse, compare, or inspect all supported capabilities in a visual interface, start `python3 {baseDir}/scripts/catalog_server.py` and open the local address it prints (normally `http://127.0.0.1:8765`; an adjacent free port is selected automatically when needed). The page reads the bundled standard capabilities, delegates live AI Application requests to `runninghub_app.py`, and displays the local incremental AI Application and RHTV catalogs. “刷新目录” compares the current public AI Application/RHTV page with the SQLite cache and writes only new or changed records. AI Applications are cached by requested sort and page because the public directory can contain tens of thousands of records; navigating pages progressively fills the local cache without a full rescan on every refresh. Each RHTV card explains the preview's intended video effect and summarizes the required media/text inputs. The detail view displays the actual public input images/videos/audio, full original prompts, output settings, structural I/O, and the current official “Community → Workflow Templates” library entry. These values are scoped to the graph branch that produced the catalog preview, rather than unrelated branches on the same canvas. RHTV does not currently expose a permanent public URL for each template, so tell users to search the shown template name in the official library. Do not present a local catalog URL as a workflow link, and do not use the retired `/projects/canvas/inspiration/create` route. Credentials remain server-side; browsing RHTV does not require a login token.
 
 ## Script Usage
@@ -115,7 +118,7 @@ python3 {baseDir}/scripts/runninghub.py \
 ```
 
 Optional flags: `--image PATH`, `--video PATH`, `--audio PATH`, `--param key=value` (repeatable)
-Discovery: `--list [--type T]`, `--info ENDPOINT`
+Discovery: `--list [--type T]`, `--info ENDPOINT`; API method by browser number: `python3 {baseDir}/scripts/api_lookup.py --number N --kind standard|app`
 
 Example — text to image:
 ```bash

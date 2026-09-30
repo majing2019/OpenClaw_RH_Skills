@@ -44,6 +44,7 @@ APP_SORTS = {"RECOMMEND", "HOTTEST", "NEWEST"}
 sys.path.insert(0, str(SCRIPT_DIR))
 from runninghub import resolve_api_key  # noqa: E402
 import build_capabilities  # noqa: E402
+import capability_numbers  # noqa: E402
 
 CAPABILITIES_REGISTRY_URL = (
     "https://raw.githubusercontent.com/HM-RunningHub/ComfyUI_RH_OpenAPI/main/models_registry.json"
@@ -69,6 +70,7 @@ def refresh_capabilities_catalog() -> dict:
         raise RuntimeError("官方能力注册表包含无效 endpoint；本地目录未更改")
     if len(set(endpoint_ids)) != len(endpoint_ids):
         raise RuntimeError("官方能力注册表包含重复 endpoint；本地目录未更改")
+    catalog = capability_numbers.number_capabilities(catalog)
     catalog["source"] = "HM-RunningHub/ComfyUI_RH_OpenAPI/models_registry.json"
     CAPABILITIES_PATH.parent.mkdir(parents=True, exist_ok=True)
     temp_path = None
@@ -346,7 +348,8 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 if query.get("refresh", ["0"])[0] == "1":
                     self.send_json(refresh_capabilities_catalog())
                 else:
-                    self.send_file(CAPABILITIES_PATH, "application/json; charset=utf-8")
+                    catalog = json.loads(CAPABILITIES_PATH.read_text(encoding="utf-8"))
+                    self.send_json(capability_numbers.number_capabilities(catalog))
                 return
             if parsed.path == "/api/apps":
                 query = parse_qs(parsed.query)

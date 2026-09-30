@@ -84,9 +84,25 @@ def connect(path: Path) -> sqlite3.Connection:
         ("api_example", "TEXT NOT NULL DEFAULT ''"),
         ("api_checked_at", "TEXT NOT NULL DEFAULT ''"),
         ("output_type", "TEXT NOT NULL DEFAULT ''"),
+        ("catalog_no", "INTEGER"),
     ):
         if name not in columns:
             db.execute(f"ALTER TABLE apps ADD COLUMN {name} {definition}")
+    next_number = int(db.execute("SELECT COALESCE(MAX(catalog_no),0)+1 FROM apps").fetchone()[0])
+    missing_numbers = db.execute("SELECT webapp_id FROM apps WHERE catalog_no IS NULL ORDER BY rowid").fetchall()
+    for row in missing_numbers:
+        db.execute("UPDATE apps SET catalog_no=? WHERE webapp_id=?", (next_number, row["webapp_id"]))
+        next_number += 1
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_apps_catalog_no ON apps(catalog_no)")
+    db.executescript("""
+      CREATE TRIGGER IF NOT EXISTS assign_app_catalog_no
+      AFTER INSERT ON apps WHEN NEW.catalog_no IS NULL
+      BEGIN
+        UPDATE apps SET catalog_no=(
+          SELECT COALESCE(MAX(catalog_no),0)+1 FROM apps WHERE webapp_id<>NEW.webapp_id
+        ) WHERE webapp_id=NEW.webapp_id;
+      END;
+    """)
     db.execute("CREATE INDEX IF NOT EXISTS idx_apps_output_type ON apps(output_type)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_apps_api_enabled ON apps(api_enabled)")
     return db
@@ -380,12 +396,12 @@ def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
         clause = " AND ".join(where)
         total = int(db.execute(f"SELECT COUNT(*) FROM apps WHERE {clause}", params).fetchone()[0])
         pages = max(1, (total + size - 1) // size)
-        selected = db.execute(f"SELECT webapp_id, title, description, cover_file, cover_url, purpose, node_json, detail_error, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at FROM apps WHERE {clause} ORDER BY last_seen DESC LIMIT ? OFFSET ?", params + [size, (page - 1) * size]).fetchall()
+        selected = db.execute(f"SELECT webapp_id, catalog_no, title, description, cover_file, cover_url, purpose, node_json, detail_error, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at FROM apps WHERE {clause} ORDER BY last_seen DESC LIMIT ? OFFSET ?", params + [size, (page - 1) * size]).fetchall()
         rows = selected
         return {"sort": sort, "page": page, "size": size, "type": output_type, "api": api_status, "total": total, "pages": pages, "hasNext": page < pages, "apps": [row_to_app(r) for r in rows]}
 
     rows = db.execute("""
-      SELECT a.webapp_id, a.title, a.description, a.cover_file, a.cover_url, a.purpose, a.node_json, a.detail_error, a.official_description, a.tags_json, a.covers_json, a.api_enabled, a.api_example, a.api_checked_at, p.position
+      SELECT a.webapp_id, a.catalog_no, a.title, a.description, a.cover_file, a.cover_url, a.purpose, a.node_json, a.detail_error, a.official_description, a.tags_json, a.covers_json, a.api_enabled, a.api_example, a.api_checked_at, p.position
       FROM app_pages p JOIN apps a ON a.webapp_id = p.webapp_id
       WHERE p.sort_name = ? AND p.page = ? ORDER BY p.position LIMIT ? OFFSET ?
     """, (sort, page, size, 0)).fetchall()
@@ -412,11 +428,11 @@ def row_to_app(row: sqlite3.Row) -> dict:
         if not node.get("descriptionCn"):
             node["descriptionCn"] = node_description(node)
     webapp_id = row["webapp_id"]
-    return {"title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "nodes": nodes, "detailError": row["detail_error"], "webappId": webapp_id, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "apiEnabled": bool(row["api_enabled"]), "apiStatusKnown": bool(row["api_checked_at"]), "apiExample": row["api_example"], "apiUrl": f"https://www.runninghub.ai/zh-cn/call-api/api-detail/{webapp_id}?apiType=4"}
+    return {"title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "nodes": nodes, "detailError": row["detail_error"], "webappId": webapp_id, "catalogNo": row["catalog_no"], "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "apiEnabled": bool(row["api_enabled"]), "apiStatusKnown": bool(row["api_checked_at"]), "apiExample": row["api_example"], "apiUrl": f"https://www.runninghub.ai/zh-cn/call-api/api-detail/{webapp_id}?apiType=4"}
 
 
 def get_app(db: sqlite3.Connection, webapp_id: str) -> dict:
-    row = db.execute("SELECT webapp_id,title,description,purpose,cover_file,cover_url,node_json,test_inputs,detail_error,official_description,tags_json,covers_json,api_enabled,api_example,api_checked_at FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
+    row = db.execute("SELECT webapp_id,catalog_no,title,description,purpose,cover_file,cover_url,node_json,test_inputs,detail_error,official_description,tags_json,covers_json,api_enabled,api_example,api_checked_at FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
     if not row:
         return {"webappId": webapp_id, "nodeCount": 0, "nodes": [], "detailError": "该应用尚未进入本地目录缓存"}
     try:
@@ -439,7 +455,7 @@ def get_app(db: sqlite3.Connection, webapp_id: str) -> dict:
     except json.JSONDecodeError:
         covers = []
     webapp_id = row["webapp_id"]
-    return {"webappId": webapp_id, "title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "nodeCount": len(nodes), "nodes": nodes, "testInputs": test_inputs, "detailError": row["detail_error"], "apiEnabled": bool(row["api_enabled"]), "apiStatusKnown": bool(row["api_checked_at"]), "apiExample": row["api_example"], "apiUrl": f"https://www.runninghub.ai/zh-cn/call-api/api-detail/{webapp_id}?apiType=4"}
+    return {"webappId": webapp_id, "catalogNo": row["catalog_no"], "title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "nodeCount": len(nodes), "nodes": nodes, "testInputs": test_inputs, "detailError": row["detail_error"], "apiEnabled": bool(row["api_enabled"]), "apiStatusKnown": bool(row["api_checked_at"]), "apiExample": row["api_example"], "apiUrl": f"https://www.runninghub.ai/zh-cn/call-api/api-detail/{webapp_id}?apiType=4"}
 
 
 def main() -> int:
