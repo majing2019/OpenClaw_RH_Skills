@@ -10,6 +10,7 @@ existing runninghub_app.py helper.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import re
@@ -136,6 +137,12 @@ def fetch_detail(webapp_id: str) -> tuple[list[dict], str, dict]:
     return nodes, "", metadata
 
 
+def test_input_specs(nodes: list[dict]) -> list[dict]:
+    fields = ("nodeId", "nodeName", "fieldName", "fieldType", "fieldValue",
+              "fieldData", "description", "descriptionCn", "descriptionEn")
+    return [{key: node.get(key) for key in fields if key in node} for node in nodes]
+
+
 def clean_html(value: str) -> str:
     value = re.sub(r"<[^>]+>", " ", str(value or ""))
     return re.sub(r"\s+", " ", unescape(value)).strip()
@@ -244,40 +251,46 @@ def stable_cover(app: dict) -> str:
 def sync_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int) -> dict:
     data = helper_list(sort, size, page, days)
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    created = updated = unchanged = 0
+    created = updated = unchanged = failed = 0
+    apps = [app for app in data.get("apps", []) if str(app.get("webappId", "")).strip()]
+    # Refresh all visible app details together. The page's listing and detail
+    # metadata are written as one record so API, descriptions, nodes and sample
+    # inputs cannot drift independently.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, max(1, len(apps)))) as pool:
+        futures = {pool.submit(fetch_detail, str(app["webappId"]).strip()): str(app["webappId"]).strip() for app in apps}
+        details = {webapp_id: future.result() for future, webapp_id in futures.items()}
+
     # A remote page can be reordered between refreshes. Remove the previous
     # positional snapshot for this page so stale cover paths/apps do not leak
     # into the newly refreshed directory.
     db.execute("DELETE FROM app_pages WHERE sort_name=? AND page=?", (sort, page))
-    for position, app in enumerate(data.get("apps", [])):
+    for position, app in enumerate(apps):
         webapp_id = str(app.get("webappId", "")).strip()
-        if not webapp_id:
-            continue
-        current = db.execute("SELECT content_hash, official_description, tags_json, covers_json, api_checked_at FROM apps WHERE webapp_id = ?", (webapp_id,)).fetchone()
+        current = db.execute("SELECT * FROM apps WHERE webapp_id = ?", (webapp_id,)).fetchone()
         content_hash = digest(app)
-        needs_detail = (current is None or current["content_hash"] != content_hash
-                        or current["tags_json"] in (None, "", "[]", "null")
-                        or not current["api_checked_at"])
-        if needs_detail:
-            nodes, detail_error, metadata = fetch_detail(webapp_id)
-        else:
-            saved = db.execute("SELECT node_json, detail_error, official_description, tags_json, covers_json, api_enabled, api_example FROM apps WHERE webapp_id = ?", (webapp_id,)).fetchone()
-            try:
-                nodes = json.loads(saved["node_json"] or "[]") if saved else []
-            except json.JSONDecodeError:
-                nodes = []
-            detail_error = saved["detail_error"] if saved else ""
-            try:
-                tags = json.loads(saved["tags_json"] or "[]") if saved else []
-            except json.JSONDecodeError:
-                tags = []
-            try:
-                covers = json.loads(saved["covers_json"] or "[]") if saved else []
-            except json.JSONDecodeError:
-                covers = []
-            metadata = {"description": saved["official_description"] if saved else "", "tags": tags, "covers": covers,
-                        "apiEnabled": bool(saved["api_enabled"]) if saved else False,
-                        "apiExample": saved["api_example"] if saved else ""}
+        nodes, detail_error, metadata = details[webapp_id]
+        if detail_error:
+            failed += 1
+            # Keep the existing app snapshot intact on a transient detail
+            # failure. For a new app, save only its listing fields and leave
+            # detail/API timestamps empty so a later refresh retries it.
+            if current is None:
+                cover_file = stable_cover(app)
+                output_type = app_output_type(app.get("title", ""), app.get("description", ""), "", [])
+                listing_api_example = str(app.get("apiExample") or "")
+                listing_api_enabled = 1 if (app.get("apiEnabled") or listing_api_example) else 0
+                db.execute("""INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active,api_enabled,api_example,output_type)
+                              VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)""",
+                           (webapp_id, app.get("title", ""), app.get("description", ""), cover_file,
+                            app.get("coverUrl", ""), "", "[]", detail_error, "", now, now,
+                            listing_api_enabled, listing_api_example, output_type))
+                created += 1
+            else:
+                unchanged += 1
+            db.execute("INSERT INTO app_pages(sort_name,webapp_id,page,position,last_seen) VALUES(?,?,?,?,?) ON CONFLICT(sort_name,webapp_id) DO UPDATE SET page=excluded.page,position=excluded.position,last_seen=excluded.last_seen",
+                       (sort, webapp_id, page, position, now))
+            continue
+
         purpose = infer_purpose(app, nodes, metadata)
         cover_file = stable_cover(app)
         official_description = clean_html(metadata.get("description") or "")
@@ -287,20 +300,46 @@ def sync_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
         api_enabled = 1 if (metadata.get("apiEnabled") or api_example) else 0
         output_type = app_output_type(app.get("title", ""), app.get("description", ""), purpose, nodes)
         api_checked_at = now
-        values = (webapp_id, app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at, output_type)
+        nodes_json = json.dumps(nodes, ensure_ascii=False)
+        test_inputs_json = json.dumps(test_input_specs(nodes), ensure_ascii=False)
+        changed = current is None or any((
+            current["title"] != app.get("title", ""),
+            current["description"] != app.get("description", ""),
+            current["cover_url"] != app.get("coverUrl", ""),
+            current["purpose"] != purpose,
+            current["node_json"] != nodes_json,
+            current["official_description"] != official_description,
+            current["tags_json"] != tags_json,
+            current["covers_json"] != covers_json,
+            current["api_enabled"] != api_enabled,
+            current["api_example"] != api_example,
+            current["output_type"] != output_type,
+            current["test_inputs"] != test_inputs_json,
+        ))
         if current is None:
-            db.execute("INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active,official_description,tags_json,covers_json,api_enabled,api_example,api_checked_at,output_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?)", values[:9] + (now, now) + values[10:])
+            db.execute("""INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active,official_description,tags_json,covers_json,api_enabled,api_example,api_checked_at,output_type,test_inputs,detail_fetched_at)
+                          VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
+                       (webapp_id, app.get("title", ""), app.get("description", ""), cover_file,
+                        app.get("coverUrl", ""), purpose, nodes_json, "", content_hash, now, now,
+                        official_description, tags_json, covers_json, api_enabled, api_example,
+                        api_checked_at, output_type, test_inputs_json, now))
             created += 1
-        elif current["content_hash"] != content_hash:
-            db.execute("UPDATE apps SET title=?,description=?,cover_file=?,cover_url=?,purpose=?,node_json=?,detail_error=?,content_hash=?,last_seen=?,active=1,official_description=?,tags_json=?,covers_json=?,api_enabled=?,api_example=?,api_checked_at=?,output_type=? WHERE webapp_id=?", (app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at, output_type, webapp_id))
-            updated += 1
         else:
-            db.execute("UPDATE apps SET cover_file=COALESCE(NULLIF(?, ''), cover_file), cover_url=COALESCE(NULLIF(?, ''), cover_url), purpose=COALESCE(NULLIF(?, ''), purpose), official_description=COALESCE(NULLIF(?, ''), official_description), tags_json=COALESCE(NULLIF(?, ''), tags_json), covers_json=COALESCE(NULLIF(?, ''), covers_json), api_enabled=?, api_example=?, api_checked_at=?, output_type=?, last_seen=?,active=1 WHERE webapp_id=?", (cover_file, app.get("coverUrl", ""), purpose, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at, output_type, now, webapp_id))
-            unchanged += 1
+            db.execute("""UPDATE apps SET title=?,description=?,cover_file=?,cover_url=?,purpose=?,node_json=?,detail_error='',content_hash=?,last_seen=?,active=1,
+                          official_description=?,tags_json=?,covers_json=?,api_enabled=?,api_example=?,api_checked_at=?,output_type=?,test_inputs=?,detail_fetched_at=?
+                          WHERE webapp_id=?""",
+                       (app.get("title", ""), app.get("description", ""), cover_file,
+                        app.get("coverUrl", ""), purpose, nodes_json, content_hash, now,
+                        official_description, tags_json, covers_json, api_enabled, api_example,
+                        api_checked_at, output_type, test_inputs_json, now, webapp_id))
+            if changed:
+                updated += 1
+            else:
+                unchanged += 1
         db.execute("INSERT INTO app_pages(sort_name,webapp_id,page,position,last_seen) VALUES(?,?,?,?,?) ON CONFLICT(sort_name,webapp_id) DO UPDATE SET page=excluded.page,position=excluded.position,last_seen=excluded.last_seen", (sort, webapp_id, page, position, now))
     db.execute("INSERT INTO sync_runs(sort_name,page,size,remote_total,remote_pages,created,updated,unchanged,synced_at) VALUES(?,?,?,?,?,?,?,?,?)", (sort, page, size, int(data.get("total", 0)), int(data.get("pages", 0)), created, updated, unchanged, now))
     db.commit()
-    data["sync"] = {"created": created, "updated": updated, "unchanged": unchanged, "page": page, "sort": sort}
+    data["sync"] = {"created": created, "updated": updated, "unchanged": unchanged, "failed": failed, "page": page, "sort": sort}
     return data
 
 
@@ -334,18 +373,18 @@ def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
             where.append("output_type=?")
             params.append(output_type)
         if api_status == "yes":
-            where.append("api_enabled=1")
+            where.append("api_enabled=1 AND api_checked_at<>''")
         elif api_status == "no":
-            where.append("api_enabled=0")
+            where.append("api_enabled=0 AND api_checked_at<>''")
         clause = " AND ".join(where)
         total = int(db.execute(f"SELECT COUNT(*) FROM apps WHERE {clause}", params).fetchone()[0])
         pages = max(1, (total + size - 1) // size)
-        selected = db.execute(f"SELECT webapp_id, title, description, cover_file, cover_url, purpose, node_json, detail_error, official_description, tags_json, covers_json, api_enabled, api_example FROM apps WHERE {clause} ORDER BY last_seen DESC LIMIT ? OFFSET ?", params + [size, (page - 1) * size]).fetchall()
+        selected = db.execute(f"SELECT webapp_id, title, description, cover_file, cover_url, purpose, node_json, detail_error, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at FROM apps WHERE {clause} ORDER BY last_seen DESC LIMIT ? OFFSET ?", params + [size, (page - 1) * size]).fetchall()
         rows = selected
         return {"sort": sort, "page": page, "size": size, "type": output_type, "api": api_status, "total": total, "pages": pages, "hasNext": page < pages, "apps": [row_to_app(r) for r in rows]}
 
     rows = db.execute("""
-      SELECT a.webapp_id, a.title, a.description, a.cover_file, a.cover_url, a.purpose, a.node_json, a.detail_error, a.official_description, a.tags_json, a.covers_json, a.api_enabled, a.api_example, p.position
+      SELECT a.webapp_id, a.title, a.description, a.cover_file, a.cover_url, a.purpose, a.node_json, a.detail_error, a.official_description, a.tags_json, a.covers_json, a.api_enabled, a.api_example, a.api_checked_at, p.position
       FROM app_pages p JOIN apps a ON a.webapp_id = p.webapp_id
       WHERE p.sort_name = ? AND p.page = ? ORDER BY p.position LIMIT ? OFFSET ?
     """, (sort, page, size, 0)).fetchall()
@@ -372,11 +411,11 @@ def row_to_app(row: sqlite3.Row) -> dict:
         if not node.get("descriptionCn"):
             node["descriptionCn"] = node_description(node)
     webapp_id = row["webapp_id"]
-    return {"title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "nodes": nodes, "detailError": row["detail_error"], "webappId": webapp_id, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "apiEnabled": bool(row["api_enabled"]), "apiExample": row["api_example"], "apiUrl": f"https://www.runninghub.ai/zh-cn/call-api/api-detail/{webapp_id}?apiType=4"}
+    return {"title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "nodes": nodes, "detailError": row["detail_error"], "webappId": webapp_id, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "apiEnabled": bool(row["api_enabled"]), "apiStatusKnown": bool(row["api_checked_at"]), "apiExample": row["api_example"], "apiUrl": f"https://www.runninghub.ai/zh-cn/call-api/api-detail/{webapp_id}?apiType=4"}
 
 
 def get_app(db: sqlite3.Connection, webapp_id: str) -> dict:
-    row = db.execute("SELECT webapp_id,title,description,purpose,cover_file,cover_url,node_json,test_inputs,detail_error,official_description,tags_json,covers_json,api_enabled,api_example FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
+    row = db.execute("SELECT webapp_id,title,description,purpose,cover_file,cover_url,node_json,test_inputs,detail_error,official_description,tags_json,covers_json,api_enabled,api_example,api_checked_at FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
     if not row:
         return {"webappId": webapp_id, "nodeCount": 0, "nodes": [], "detailError": "该应用尚未进入本地目录缓存"}
     try:
@@ -399,7 +438,7 @@ def get_app(db: sqlite3.Connection, webapp_id: str) -> dict:
     except json.JSONDecodeError:
         covers = []
     webapp_id = row["webapp_id"]
-    return {"webappId": webapp_id, "title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "nodeCount": len(nodes), "nodes": nodes, "testInputs": test_inputs, "detailError": row["detail_error"], "apiEnabled": bool(row["api_enabled"]), "apiExample": row["api_example"], "apiUrl": f"https://www.runninghub.ai/zh-cn/call-api/api-detail/{webapp_id}?apiType=4"}
+    return {"webappId": webapp_id, "title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "nodeCount": len(nodes), "nodes": nodes, "testInputs": test_inputs, "detailError": row["detail_error"], "apiEnabled": bool(row["api_enabled"]), "apiStatusKnown": bool(row["api_checked_at"]), "apiExample": row["api_example"], "apiUrl": f"https://www.runninghub.ai/zh-cn/call-api/api-detail/{webapp_id}?apiType=4"}
 
 
 def main() -> int:

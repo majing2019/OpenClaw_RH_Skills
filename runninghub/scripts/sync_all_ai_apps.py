@@ -45,8 +45,13 @@ def upsert_page(db: sqlite3.Connection, data: dict, sort: str, remote_page: int,
         title = record.get("title", "") or ""
         description = record.get("description", "") or ""
         cover_url = record.get("cover", "") or ""
-        output_type = ai_app_catalog.app_output_type(title, description, "", [])
-        existing = db.execute("SELECT purpose,node_json,detail_error,first_seen FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
+        existing = db.execute("SELECT title,description,output_type FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
+        # Keep the classification derived from cached details when the remote
+        # listing metadata is unchanged. Reclassify only new or changed apps.
+        if existing and existing["output_type"] and existing["title"] == title and existing["description"] == description:
+            output_type = existing["output_type"]
+        else:
+            output_type = ai_app_catalog.app_output_type(title, description, "", [])
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         if existing:
             db.execute("""UPDATE apps SET title=?,description=?,cover_url=?,output_type=?,last_seen=?,active=1

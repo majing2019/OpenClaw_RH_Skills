@@ -499,7 +499,7 @@
         const data = await fetchJson(`/api/apps?size=24&page=${state.appPage}${typeQuery}${apiQuery}${force ? '&refresh=1' : ''}`);
         state.appData = data;
         renderApps();
-        if (data.sync) $('#appSummary').textContent += ` · 新增 ${data.sync.created}，更新 ${data.sync.updated}，未变化 ${data.sync.unchanged}`;
+        if (data.sync) $('#appSummary').textContent += ` · 新增 ${data.sync.created}，更新 ${data.sync.updated}，未变化 ${data.sync.unchanged}${data.sync.failed ? `，详情刷新失败 ${data.sync.failed} 个（已保留旧数据）` : ''}`;
       } catch (error) {
         $('#appCards').innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
         $('#appSummary').textContent = '加载失败';
@@ -513,13 +513,13 @@
       const apiStatus = $('#appApi').value;
       state.appFiltered = (data.apps || []).filter(app => {
         const haystack = [app.title, app.description, app.purpose, ...(app.nodes || []).map(node => node.description || node.fieldName || '')].join(' ').toLowerCase();
-        return (!query || haystack.includes(query)) && (!type || appOutputType(app, app.nodes || []) === type) && (!apiStatus || (apiStatus === 'yes' ? app.apiEnabled : !app.apiEnabled));
+        return (!query || haystack.includes(query)) && (!type || appOutputType(app, app.nodes || []) === type) && (!apiStatus || (app.apiStatusKnown !== false && (apiStatus === 'yes' ? app.apiEnabled : !app.apiEnabled)));
       });
       $('#appSummary').textContent = `显示 ${state.appFiltered.length} / ${data.total || data.apps.length} 个 · 第 ${data.page || state.appPage} 页`;
       $('#appCards').innerHTML = state.appFiltered.length ? state.appFiltered.map((app, index) => `
         <article class="card app-card" tabindex="0" data-app-index="${index}">
           <div class="cover">${appPreview(app)}${app.coverType === 'video' || /\.(mp4|webm|mov)(?:$|\?)/i.test(app.coverUrl || '') ? '<span class="preview-badge">悬停预览</span>' : ''}</div>
-          <div class="app-copy"><div class="card-head"><h3>${escapeHtml(app.title || '未命名应用')}</h3><span class="pill type ${escapeHtml(appOutputType(app, app.nodes || []))}">${escapeHtml(typeNames[appOutputType(app, app.nodes || [])] || appOutputType(app, app.nodes || []))}</span></div><p>${escapeHtml(appDescription(app))}</p><div class="input-summary"><span class="pill ${app.apiEnabled ? 'api-on' : 'api-off'}">${app.apiEnabled ? 'API 已开通' : 'API 未开通'}</span> ${escapeHtml(appInputSummary(app.nodes || []))} · 点击查看示例输入与输出</div></div>
+          <div class="app-copy"><div class="card-head"><h3>${escapeHtml(app.title || '未命名应用')}</h3><span class="pill type ${escapeHtml(appOutputType(app, app.nodes || []))}">${escapeHtml(typeNames[appOutputType(app, app.nodes || [])] || appOutputType(app, app.nodes || []))}</span></div><p>${escapeHtml(appDescription(app))}</p><div class="input-summary"><span class="pill ${app.apiStatusKnown === false ? '' : (app.apiEnabled ? 'api-on' : 'api-off')}">${app.apiStatusKnown === false ? 'API 待核实' : (app.apiEnabled ? 'API 已开通' : 'API 未开通')}</span> ${escapeHtml(appInputSummary(app.nodes || []))} · 点击查看示例输入与输出</div></div>
         </article>`).join('') : '<div class="empty">当前目录没有可显示的应用。</div>';
       $$('[data-app-index]').forEach(card => {
         const video = card.querySelector('video[data-preview-src]');
@@ -562,7 +562,7 @@
           <div class="detail-section"><h3>生成示例使用的文字</h3><p class="fine-print">以下文字来自应用公开节点的默认值，可以直接作为测试输入的起点。</p>${renderAppExamplePrompts(nodes)}</div>
           <div class="detail-section"><h3>需要准备的输入</h3><p class="fine-print">${escapeHtml(appInputSummary(nodes))}</p>${media.length ? `<div class="params">${media.map(node => `<div class="param"><code>${escapeHtml(node.descriptionCn || node.description || appFieldNames[String(node.fieldType).toUpperCase()] || '媒体素材')}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '媒体')} · 上传文件</small><span>输入</span></div>`).join('')}</div>` : '<div class="empty">没有识别到需要上传的图片、视频或音频；可能只需要文字或选项参数。</div>'}</div>
           <div class="detail-section"><h3>文字与控制参数</h3>${textParams.length ? `<div class="params">${textParams.map(node => { const options = formatFieldOptions(node.fieldData); return `<div class="param"><code>${escapeHtml(node.descriptionCn || node.description || appFieldNames[String(node.fieldType).toUpperCase()] || '应用参数')}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '')}${node.fieldValue !== undefined ? ` · 当前 ${escapeHtml(JSON.stringify(node.fieldValue))}` : ''}${options ? ` · 选项：${escapeHtml(options)}` : ''}</small><span>可修改</span></div>`; }).join('')}</div>` : '<div class="empty">没有公开文字或控制参数。</div>'}</div>
-          <div class="detail-section"><h3>API 调用</h3><p class="fine-print">${data.apiEnabled ? 'RunningHub 已为此应用开放 API 调用。' : '此应用当前没有检测到公开 API 调用示例。'}</p>${data.apiEnabled ? `<a class="action-link" href="${escapeHtml(data.apiUrl || `https://www.runninghub.ai/zh-cn/call-api/api-detail/${encodeURIComponent(app.webappId)}?apiType=4`)}" target="_blank" rel="noopener noreferrer">打开官方 API 调用页面</a>` : ''}${data.apiExample ? `<pre class="api-example">${escapeHtml(data.apiExample)}</pre>` : ''}</div>
+          <div class="detail-section"><h3>API 调用</h3><p class="fine-print">${data.apiStatusKnown === false ? '本地还没有成功核实此应用的 API 状态。' : (data.apiEnabled ? 'RunningHub 已为此应用开放 API 调用。' : '此应用当前没有检测到公开 API 调用示例。')}</p>${data.apiEnabled || data.apiStatusKnown === false ? `<a class="action-link" href="${escapeHtml(data.apiUrl || `https://www.runninghub.ai/zh-cn/call-api/api-detail/${encodeURIComponent(app.webappId)}?apiType=4`)}" target="_blank" rel="noopener noreferrer">打开官方 API 调用页面</a>` : ''}${data.apiExample ? `<pre class="api-example">${escapeHtml(data.apiExample)}</pre>` : ''}</div>
           <div class="detail-section"><h3>输出说明</h3><p class="fine-print">这个应用主要输出${escapeHtml(typeNames[outputType] || outputType)}。具体时长、尺寸和质量取决于应用的公开参数与输入素材。</p></div>
           <div class="detail-section"><h3>官方 AI 应用</h3><a class="action-link" href="https://www.runninghub.ai/ai-detail/${encodeURIComponent(app.webappId)}" target="_blank" rel="noopener noreferrer">打开官方应用页面</a></div>`;
       } catch (error) {
