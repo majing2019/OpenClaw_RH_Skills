@@ -231,6 +231,7 @@
       <div class="toolbar rhtv-toolbar" style="margin-top:14px">
         <label class="field"><span class="search-icon" aria-hidden="true">⌕</span><input id="appSearch" type="search" placeholder="搜索应用名称、用途或输入类型" aria-label="搜索 AI 应用"></label>
         <label><span hidden>输出类型</span><select id="appType" aria-label="AI 应用输出类型"><option value="">全部输出类型</option><option value="image">图片</option><option value="video">视频</option><option value="audio">音频</option><option value="text">文本</option><option value="3d">3D</option></select></label>
+        <label><span hidden>API 状态</span><select id="appApi" aria-label="AI 应用 API 状态"><option value="">全部 API 状态</option><option value="yes">已开通 API</option><option value="no">未开通 API</option></select></label>
         <button class="ghost" id="resetApps">重置</button>
       </div>
       <div class="summary"><h2>AI 应用目录</h2><p id="appSummary"></p></div>
@@ -493,7 +494,9 @@
       try {
         const outputType = $('#appType').value;
         const typeQuery = outputType ? `&type=${encodeURIComponent(outputType)}` : '';
-        const data = await fetchJson(`/api/apps?size=24&page=${state.appPage}${typeQuery}${force ? '&refresh=1' : ''}`);
+        const apiStatus = $('#appApi').value;
+        const apiQuery = apiStatus ? `&api=${encodeURIComponent(apiStatus)}` : '';
+        const data = await fetchJson(`/api/apps?size=24&page=${state.appPage}${typeQuery}${apiQuery}${force ? '&refresh=1' : ''}`);
         state.appData = data;
         renderApps();
         if (data.sync) $('#appSummary').textContent += ` · 新增 ${data.sync.created}，更新 ${data.sync.updated}，未变化 ${data.sync.unchanged}`;
@@ -507,9 +510,10 @@
       const data = state.appData || { apps: [] };
       const query = $('#appSearch').value.trim().toLowerCase();
       const type = $('#appType').value;
+      const apiStatus = $('#appApi').value;
       state.appFiltered = (data.apps || []).filter(app => {
         const haystack = [app.title, app.description, app.purpose, ...(app.nodes || []).map(node => node.description || node.fieldName || '')].join(' ').toLowerCase();
-        return (!query || haystack.includes(query)) && (!type || appOutputType(app, app.nodes || []) === type);
+        return (!query || haystack.includes(query)) && (!type || appOutputType(app, app.nodes || []) === type) && (!apiStatus || (apiStatus === 'yes' ? app.apiEnabled : !app.apiEnabled));
       });
       $('#appSummary').textContent = `显示 ${state.appFiltered.length} / ${data.total || data.apps.length} 个 · 第 ${data.page || state.appPage} 页`;
       $('#appCards').innerHTML = state.appFiltered.length ? state.appFiltered.map((app, index) => `
@@ -717,7 +721,8 @@
     $('#loadApps').addEventListener('click', () => loadApps(true));
     $('#appSearch').addEventListener('input', renderApps);
     $('#appType').addEventListener('change', () => { state.appPage = 1; loadApps(); });
-    $('#resetApps').addEventListener('click', () => { $('#appSearch').value=''; $('#appType').value=''; state.appPage = 1; loadApps(); });
+    $('#appApi').addEventListener('change', () => { state.appPage = 1; loadApps(); });
+    $('#resetApps').addEventListener('click', () => { $('#appSearch').value=''; $('#appType').value=''; $('#appApi').value=''; state.appPage = 1; loadApps(); });
     $('#loadRhtv').addEventListener('click', () => loadRhtv(true));
     $('#rhtvSearch').addEventListener('input', applyRhtvFilters);
     $('#rhtvType').addEventListener('change', applyRhtvFilters);

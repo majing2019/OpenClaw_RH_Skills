@@ -45,8 +45,8 @@ class CatalogState:
         self.app_cache: dict[tuple, tuple[float, dict]] = {}
         self.rhtv_cache: tuple[float, dict] | None = None
 
-    def get_apps(self, sort: str, size: int, page: int, days: int, output_type: str = "", force: bool = False) -> dict:
-        cache_key = (sort, size, page, days, output_type)
+    def get_apps(self, sort: str, size: int, page: int, days: int, output_type: str = "", api_status: str = "", force: bool = False) -> dict:
+        cache_key = (sort, size, page, days, output_type, api_status)
         cached = self.app_cache.get(cache_key)
         if cached and not force and time.monotonic() - cached[0] < 60:
             return cached[1]
@@ -56,6 +56,8 @@ class CatalogState:
         ]
         if output_type:
             args.extend(["--type", output_type])
+        if api_status:
+            args.extend(["--api", api_status])
         # Normal reads never wait on RunningHub: paging is a local SQLite read.
         # Only the explicit “刷新目录” action performs a remote incremental
         # sync, so browsing already-cached pages stays instant.
@@ -213,10 +215,13 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 page = max(1, int(query.get("page", ["1"])[0]))
                 days = max(1, min(30, int(query.get("days", ["7"])[0])))
                 output_type = query.get("type", [""])[0].lower()
+                api_status = query.get("api", [""])[0].lower()
                 if output_type not in {"", "image", "video", "audio", "text", "3d"}:
                     raise ValueError("type must be image, video, audio, text, or 3d")
+                if api_status not in {"", "yes", "no"}:
+                    raise ValueError("api must be yes or no")
                 force = query.get("refresh", ["0"])[0] == "1"
-                self.send_json(STATE.get_apps(sort, size, page, days, output_type=output_type, force=force))
+                self.send_json(STATE.get_apps(sort, size, page, days, output_type=output_type, api_status=api_status, force=force))
                 return
             if parsed.path.startswith("/api/apps/"):
                 webapp_id = parsed.path.removeprefix("/api/apps/")

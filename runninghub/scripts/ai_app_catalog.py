@@ -316,8 +316,8 @@ def app_output_type(title: str, description: str, purpose: str, nodes: list[dict
     return "image"
 
 
-def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int, output_type: str = "") -> dict:
-    if output_type:
+def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int, output_type: str = "", api_status: str = "") -> dict:
+    if output_type or api_status:
         candidates = db.execute("""
             SELECT webapp_id, title, description, cover_file, cover_url, purpose, node_json, detail_error, official_description, tags_json, covers_json, api_enabled, api_example
           FROM apps WHERE active=1 ORDER BY last_seen DESC
@@ -328,12 +328,14 @@ def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
                 nodes = json.loads(row["node_json"] or "[]")
             except json.JSONDecodeError:
                 nodes = []
-            if app_output_type(row["title"], row["description"], row["purpose"], nodes) == output_type:
+            type_match = not output_type or app_output_type(row["title"], row["description"], row["purpose"], nodes) == output_type
+            api_match = not api_status or (api_status == "yes" and bool(row["api_enabled"])) or (api_status == "no" and not bool(row["api_enabled"]))
+            if type_match and api_match:
                 matched.append(row)
         total = len(matched)
         pages = max(1, (total + size - 1) // size)
         rows = matched[(page - 1) * size: page * size]
-        return {"sort": sort, "page": page, "size": size, "type": output_type, "total": total, "pages": pages, "hasNext": page < pages, "apps": [row_to_app(r) for r in rows]}
+        return {"sort": sort, "page": page, "size": size, "type": output_type, "api": api_status, "total": total, "pages": pages, "hasNext": page < pages, "apps": [row_to_app(r) for r in rows]}
 
     rows = db.execute("""
       SELECT a.webapp_id, a.title, a.description, a.cover_file, a.cover_url, a.purpose, a.node_json, a.detail_error, a.official_description, a.tags_json, a.covers_json, a.api_enabled, a.api_example, p.position
@@ -399,6 +401,7 @@ def main() -> int:
     parser.add_argument("--page", type=int, default=1)
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--type", choices=("image", "video", "audio", "text", "3d"), default="")
+    parser.add_argument("--api", choices=("yes", "no"), default="")
     parser.add_argument("--sync", action="store_true")
     parser.add_argument("--list", action="store_true", help="Read the local cache")
     parser.add_argument("--get", metavar="WEBAPP_ID", help="Read one app and its cached public nodes")
@@ -410,7 +413,7 @@ def main() -> int:
         elif args.sync:
             output = sync_page(db, args.sort, max(1, min(args.size, 50)), max(1, args.page), args.days)
         else:
-            output = list_page(db, args.sort, max(1, min(args.size, 50)), max(1, args.page), args.days, args.type)
+            output = list_page(db, args.sort, max(1, min(args.size, 50)), max(1, args.page), args.days, args.type, args.api)
         print(json.dumps(output, ensure_ascii=False, indent=2))
     finally:
         db.close()
