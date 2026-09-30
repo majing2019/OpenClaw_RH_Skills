@@ -106,6 +106,14 @@ def _extract_webapp_id(invoke_example: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _sanitize_api_example(example: str) -> str:
+    """Keep the official request shape without persisting a secret key."""
+    text = str(example or "")
+    text = re.sub(r"(Authorization\\s*[:=]\\s*(?:Bearer\\s+)?)[^\\s\\\"']+", r"\\1YOUR_API_KEY", text, flags=re.I)
+    text = re.sub(r'("apiKey"\\s*:\\s*")[^"]+', r'\\1YOUR_API_KEY', text, flags=re.I)
+    return text
+
+
 def list_apps(api_key: str, sort: str = "RECOMMEND", size: int = 10,
               page: int = 1, days: int = 7) -> dict:
     url = f"{API_HOST}{APP_LIST_PATH}"
@@ -170,6 +178,7 @@ def get_app_info(api_key: str, webapp_id: str) -> dict:
         "webappName": data.get("webappName") or "",
         "tags": data.get("tags") or [],
         "covers": data.get("covers") or [],
+        "apiExample": _sanitize_api_example(data.get("curl") or data.get("invokeExample") or ""),
     }
 
 
@@ -351,6 +360,8 @@ def cmd_list(api_key: str, sort: str, size: int, page: int, days: int):
             "title": r.get("title", ""),
             "description": r.get("description", ""),
             "coverUrl": cover_url,
+            "apiExample": _sanitize_api_example(r.get("invokeExample", "")),
+            "apiEnabled": bool(r.get("invokeExample")),
         }
         if webapp_id:
             app["webappId"] = webapp_id
@@ -391,6 +402,8 @@ def cmd_info(api_key: str, webapp_id: str):
         "webappName": info["webappName"],
         "tags": info["tags"],
         "covers": info["covers"],
+        "apiExample": info.get("apiExample", ""),
+        "apiEnabled": bool(info.get("apiExample")),
     }, indent=2, ensure_ascii=False))
 
 

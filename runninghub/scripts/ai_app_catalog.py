@@ -79,6 +79,8 @@ def connect(path: Path) -> sqlite3.Connection:
         ("official_description", "TEXT NOT NULL DEFAULT ''"),
         ("tags_json", "TEXT NOT NULL DEFAULT '[]'"),
         ("covers_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("api_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ("api_example", "TEXT NOT NULL DEFAULT ''"),
     ):
         if name not in columns:
             db.execute(f"ALTER TABLE apps ADD COLUMN {name} {definition}")
@@ -98,7 +100,7 @@ def helper_list(sort: str, size: int, page: int, days: int) -> dict:
 
 
 def digest(app: dict) -> str:
-    raw = json.dumps({k: app.get(k, "") for k in ("webappId", "title", "description", "coverUrl")}, ensure_ascii=False, sort_keys=True)
+    raw = json.dumps({k: app.get(k, "") for k in ("webappId", "title", "description", "coverUrl", "apiExample", "apiEnabled")}, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -120,6 +122,8 @@ def fetch_detail(webapp_id: str) -> tuple[list[dict], str, dict]:
         "webappName": payload.get("webappName") or "",
         "tags": payload.get("tags") or [],
         "covers": payload.get("covers") or [],
+        "apiExample": payload.get("apiExample") or "",
+        "apiEnabled": bool(payload.get("apiEnabled") or payload.get("apiExample")),
     }
     nodes = payload.get("nodes", [])
     for node in nodes:
@@ -271,15 +275,17 @@ def sync_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
         official_description = clean_html(metadata.get("description") or "")
         tags_json = json.dumps(metadata.get("tags") or [], ensure_ascii=False)
         covers_json = json.dumps(metadata.get("covers") or [], ensure_ascii=False)
-        values = (webapp_id, app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json)
+        api_example = str(app.get("apiExample") or metadata.get("apiExample") or "")
+        api_enabled = 1 if (app.get("apiEnabled") or api_example) else 0
+        values = (webapp_id, app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example)
         if current is None:
-            db.execute("INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active,official_description,tags_json,covers_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)", values[:9] + (now, now) + values[10:])
+            db.execute("INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active,official_description,tags_json,covers_json,api_enabled,api_example) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?)", values[:9] + (now, now) + values[10:])
             created += 1
         elif current["content_hash"] != content_hash:
-            db.execute("UPDATE apps SET title=?,description=?,cover_file=?,cover_url=?,purpose=?,node_json=?,detail_error=?,content_hash=?,last_seen=?,active=1,official_description=?,tags_json=?,covers_json=? WHERE webapp_id=?", (app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, webapp_id))
+            db.execute("UPDATE apps SET title=?,description=?,cover_file=?,cover_url=?,purpose=?,node_json=?,detail_error=?,content_hash=?,last_seen=?,active=1,official_description=?,tags_json=?,covers_json=?,api_enabled=?,api_example=? WHERE webapp_id=?", (app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example, webapp_id))
             updated += 1
         else:
-            db.execute("UPDATE apps SET cover_file=COALESCE(NULLIF(?, ''), cover_file), cover_url=COALESCE(NULLIF(?, ''), cover_url), purpose=COALESCE(NULLIF(?, ''), purpose), official_description=COALESCE(NULLIF(?, ''), official_description), tags_json=COALESCE(NULLIF(?, ''), tags_json), covers_json=COALESCE(NULLIF(?, ''), covers_json), last_seen=?,active=1 WHERE webapp_id=?", (cover_file, app.get("coverUrl", ""), purpose, official_description, tags_json, covers_json, now, webapp_id))
+            db.execute("UPDATE apps SET cover_file=COALESCE(NULLIF(?, ''), cover_file), cover_url=COALESCE(NULLIF(?, ''), cover_url), purpose=COALESCE(NULLIF(?, ''), purpose), official_description=COALESCE(NULLIF(?, ''), official_description), tags_json=COALESCE(NULLIF(?, ''), tags_json), covers_json=COALESCE(NULLIF(?, ''), covers_json), api_enabled=?, api_example=COALESCE(NULLIF(?, ''), api_example), last_seen=?,active=1 WHERE webapp_id=?", (cover_file, app.get("coverUrl", ""), purpose, official_description, tags_json, covers_json, api_enabled, api_example, now, webapp_id))
             unchanged += 1
         db.execute("INSERT INTO app_pages(sort_name,webapp_id,page,position,last_seen) VALUES(?,?,?,?,?) ON CONFLICT(sort_name,webapp_id) DO UPDATE SET page=excluded.page,position=excluded.position,last_seen=excluded.last_seen", (sort, webapp_id, page, position, now))
     db.execute("INSERT INTO sync_runs(sort_name,page,size,remote_total,remote_pages,created,updated,unchanged,synced_at) VALUES(?,?,?,?,?,?,?,?,?)", (sort, page, size, int(data.get("total", 0)), int(data.get("pages", 0)), created, updated, unchanged, now))
@@ -313,7 +319,7 @@ def app_output_type(title: str, description: str, purpose: str, nodes: list[dict
 def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int, output_type: str = "") -> dict:
     if output_type:
         candidates = db.execute("""
-            SELECT webapp_id, title, description, cover_file, cover_url, purpose, node_json, detail_error, official_description, tags_json, covers_json
+            SELECT webapp_id, title, description, cover_file, cover_url, purpose, node_json, detail_error, official_description, tags_json, covers_json, api_enabled, api_example
           FROM apps WHERE active=1 ORDER BY last_seen DESC
         """).fetchall()
         matched = []
@@ -330,7 +336,7 @@ def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
         return {"sort": sort, "page": page, "size": size, "type": output_type, "total": total, "pages": pages, "hasNext": page < pages, "apps": [row_to_app(r) for r in rows]}
 
     rows = db.execute("""
-      SELECT a.webapp_id, a.title, a.description, a.cover_file, a.cover_url, a.purpose, a.node_json, a.detail_error, a.official_description, a.tags_json, a.covers_json, p.position
+      SELECT a.webapp_id, a.title, a.description, a.cover_file, a.cover_url, a.purpose, a.node_json, a.detail_error, a.official_description, a.tags_json, a.covers_json, a.api_enabled, a.api_example, p.position
       FROM app_pages p JOIN apps a ON a.webapp_id = p.webapp_id
       WHERE p.sort_name = ? AND p.page = ? ORDER BY p.position LIMIT ? OFFSET ?
     """, (sort, page, size, 0)).fetchall()
@@ -356,11 +362,11 @@ def row_to_app(row: sqlite3.Row) -> dict:
     for node in nodes:
         if not node.get("descriptionCn"):
             node["descriptionCn"] = node_description(node)
-    return {"title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "nodes": nodes, "detailError": row["detail_error"], "webappId": row["webapp_id"], "coverFile": row["cover_file"], "coverUrl": row["cover_url"]}
+    return {"title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "nodes": nodes, "detailError": row["detail_error"], "webappId": row["webapp_id"], "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "apiEnabled": bool(row["api_enabled"]), "apiExample": row["api_example"]}
 
 
 def get_app(db: sqlite3.Connection, webapp_id: str) -> dict:
-    row = db.execute("SELECT webapp_id,title,description,purpose,cover_file,cover_url,node_json,test_inputs,detail_error,official_description,tags_json,covers_json FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
+    row = db.execute("SELECT webapp_id,title,description,purpose,cover_file,cover_url,node_json,test_inputs,detail_error,official_description,tags_json,covers_json,api_enabled,api_example FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
     if not row:
         return {"webappId": webapp_id, "nodeCount": 0, "nodes": [], "detailError": "该应用尚未进入本地目录缓存"}
     try:
@@ -382,7 +388,7 @@ def get_app(db: sqlite3.Connection, webapp_id: str) -> dict:
         covers = json.loads(row["covers_json"] or "[]")
     except json.JSONDecodeError:
         covers = []
-    return {"webappId": row["webapp_id"], "title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "nodeCount": len(nodes), "nodes": nodes, "testInputs": test_inputs, "detailError": row["detail_error"]}
+    return {"webappId": row["webapp_id"], "title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "nodeCount": len(nodes), "nodes": nodes, "testInputs": test_inputs, "detailError": row["detail_error"], "apiEnabled": bool(row["api_enabled"]), "apiExample": row["api_example"]}
 
 
 def main() -> int:

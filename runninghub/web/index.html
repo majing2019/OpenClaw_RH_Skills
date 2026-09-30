@@ -127,6 +127,10 @@
     .rhtv-card .cover { position: relative; }
     .preview-badge { position: absolute; right: 9px; top: 9px; padding: 3px 8px; border-radius: 999px; background: rgba(3, 11, 17, .82); border: 1px solid rgba(255,255,255,.18); color: #dcebf5; font-size: 11px; }
     .input-summary { margin-top: 11px; padding: 9px 10px; border: 1px solid #284153; border-radius: 10px; background: rgba(56,214,217,.06); color: #c9e5e8; font-size: 12px; line-height: 1.55; }
+    .api-on, .api-off { font-size: 11px; padding: 3px 7px; vertical-align: 1px; }
+    .api-on { color: #9ff0c0; border-color: rgba(110,231,183,.45); }
+    .api-off { color: #aab8c6; border-color: rgba(170,184,198,.35); }
+    .api-example { margin: 10px 0 0; max-height: 260px; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #071018; color: #c9e5e8; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
     .rhtv-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; color: var(--muted); font-size: 12px; }
     .detail-preview { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: #07121b; margin-bottom: 16px; }
     .detail-preview img, .detail-preview video { width: 100%; max-height: 420px; object-fit: contain; display: block; }
@@ -511,7 +515,7 @@
       $('#appCards').innerHTML = state.appFiltered.length ? state.appFiltered.map((app, index) => `
         <article class="card app-card" tabindex="0" data-app-index="${index}">
           <div class="cover">${appPreview(app)}${app.coverType === 'video' || /\.(mp4|webm|mov)(?:$|\?)/i.test(app.coverUrl || '') ? '<span class="preview-badge">悬停预览</span>' : ''}</div>
-          <div class="app-copy"><div class="card-head"><h3>${escapeHtml(app.title || '未命名应用')}</h3><span class="pill type ${escapeHtml(appOutputType(app, app.nodes || []))}">${escapeHtml(typeNames[appOutputType(app, app.nodes || [])] || appOutputType(app, app.nodes || []))}</span></div><p>${escapeHtml(appDescription(app))}</p><div class="input-summary">${escapeHtml(appInputSummary(app.nodes || []))} · 点击查看示例输入与输出</div></div>
+          <div class="app-copy"><div class="card-head"><h3>${escapeHtml(app.title || '未命名应用')}</h3><span class="pill type ${escapeHtml(appOutputType(app, app.nodes || []))}">${escapeHtml(typeNames[appOutputType(app, app.nodes || [])] || appOutputType(app, app.nodes || []))}</span></div><p>${escapeHtml(appDescription(app))}</p><div class="input-summary"><span class="pill ${app.apiEnabled ? 'api-on' : 'api-off'}">${app.apiEnabled ? 'API 已开通' : 'API 未开通'}</span> ${escapeHtml(appInputSummary(app.nodes || []))} · 点击查看示例输入与输出</div></div>
         </article>`).join('') : '<div class="empty">当前目录没有可显示的应用。</div>';
       $$('[data-app-index]').forEach(card => {
         const video = card.querySelector('video[data-preview-src]');
@@ -554,6 +558,7 @@
           <div class="detail-section"><h3>生成示例使用的文字</h3><p class="fine-print">以下文字来自应用公开节点的默认值，可以直接作为测试输入的起点。</p>${renderAppExamplePrompts(nodes)}</div>
           <div class="detail-section"><h3>需要准备的输入</h3><p class="fine-print">${escapeHtml(appInputSummary(nodes))}</p>${media.length ? `<div class="params">${media.map(node => `<div class="param"><code>${escapeHtml(node.descriptionCn || node.description || appFieldNames[String(node.fieldType).toUpperCase()] || '媒体素材')}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '媒体')} · 上传文件</small><span>输入</span></div>`).join('')}</div>` : '<div class="empty">没有识别到需要上传的图片、视频或音频；可能只需要文字或选项参数。</div>'}</div>
           <div class="detail-section"><h3>文字与控制参数</h3>${textParams.length ? `<div class="params">${textParams.map(node => { const options = formatFieldOptions(node.fieldData); return `<div class="param"><code>${escapeHtml(node.descriptionCn || node.description || appFieldNames[String(node.fieldType).toUpperCase()] || '应用参数')}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '')}${node.fieldValue !== undefined ? ` · 当前 ${escapeHtml(JSON.stringify(node.fieldValue))}` : ''}${options ? ` · 选项：${escapeHtml(options)}` : ''}</small><span>可修改</span></div>`; }).join('')}</div>` : '<div class="empty">没有公开文字或控制参数。</div>'}</div>
+          <div class="detail-section"><h3>API 调用</h3><p class="fine-print">${data.apiEnabled ? 'RunningHub 已为此应用开放 API 调用。' : '此应用当前没有检测到公开 API 调用示例。'}</p>${data.apiExample ? `<pre class="api-example">${escapeHtml(data.apiExample)}</pre>` : ''}</div>
           <div class="detail-section"><h3>输出说明</h3><p class="fine-print">这个应用主要输出${escapeHtml(typeNames[outputType] || outputType)}。具体时长、尺寸和质量取决于应用的公开参数与输入素材。</p></div>
           <div class="detail-section"><h3>官方 AI 应用</h3><a class="action-link" href="https://www.runninghub.ai/ai-detail/${encodeURIComponent(app.webappId)}" target="_blank" rel="noopener noreferrer">打开官方应用页面</a></div>`;
       } catch (error) {
