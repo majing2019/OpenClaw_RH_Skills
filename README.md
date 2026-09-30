@@ -31,7 +31,7 @@
 
 在 OpenClaw 或 DeepSeek Harness 对话中发送：
 
-> 从 https://github.com/HM-RunningHub/OpenClaw_RH_Skills 安装 RunningHub 技能
+> 从 https://github.com/majing2019/running-hub 安装 RunningHub 技能
 
 助手会自动克隆仓库、复制文件到工作区，并引导你完成 API Key 配置。
 
@@ -39,7 +39,7 @@
 
 当技能有新版本时，在 OpenClaw 或 DeepSeek Harness 对话中发送：
 
-> 从 https://github.com/HM-RunningHub/OpenClaw_RH_Skills 更新 并重新读取@runninghub/SKILL.md
+> 从 https://github.com/majing2019/running-hub 更新 并重新读取@runninghub/SKILL.md
 
 助手会拉取最新代码并重新加载技能配置，无需重新输入 API Key。
 

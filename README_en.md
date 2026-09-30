@@ -27,7 +27,7 @@ An OpenClaw and DeepSeek Harness skill that brings multimedia generation capabil
 
 In your OpenClaw or DeepSeek Harness chat, say:
 
-> Install the RunningHub skill from https://github.com/HM-RunningHub/OpenClaw_RH_Skills
+> Install the RunningHub skill from https://github.com/majing2019/running-hub
 
 The assistant will clone the repo, copy files to the workspace, and guide you through API key setup.
 
@@ -35,7 +35,7 @@ The assistant will clone the repo, copy files to the workspace, and guide you th
 
 When a new version is available, say in your OpenClaw or DeepSeek Harness chat:
 
-> Update from https://github.com/HM-RunningHub/OpenClaw_RH_Skills and re-read @runninghub/SKILL.md
+> Update from https://github.com/majing2019/running-hub and re-read @runninghub/SKILL.md
 
 The assistant will pull the latest code and reload the skill config. No need to re-enter your API key.
 
