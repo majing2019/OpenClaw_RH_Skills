@@ -344,10 +344,23 @@
       return `<img src="${url}" alt="${title}" loading="lazy" onerror="this.closest('.cover').innerHTML='<div class=\"cover-fallback\">封面暂不可用</div>'">`;
     }
 
-    function renderAppExampleInputs(nodes) {
+    function renderAppExampleInputs(app, nodes) {
       const media = appMediaNodes(nodes);
       if (!media.length) return '<div class="empty">这个应用不需要额外上传图片、视频或音频，主要依靠文字和控制参数生成。</div>';
-      return `<div class="params">${media.map((node, index) => `<div class="param"><code>${escapeHtml(node.description || `${appFieldNames[String(node.fieldType).toUpperCase()] || '媒体'} ${index + 1}`)}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '媒体')} · 示例文件：${escapeHtml(node.fieldValue || '请上传对应素材')}</small><span>上传</span></div>`).join('')}</div>`;
+      return `<div class="media-inputs">${media.map((node, index) => {
+        const type = String(node.fieldType || '').toUpperCase();
+        const label = node.description || `${appFieldNames[type] || '媒体'} ${index + 1}`;
+        const sample = node.fieldValue || '请上传对应素材';
+        const directUrl = node.previewUrl || node.url || '';
+        // RunningHub's public AI-app API exposes the uploaded filename, not a
+        // reusable file URL. Show the official app cover as a visual reference
+        // while keeping the exact filename the user must replace.
+        const visualUrl = directUrl || app.coverUrl || '';
+        let preview = '<div class="cover-fallback">待上传</div>';
+        if (visualUrl && (type === 'VIDEO' || /\.(mp4|webm|mov)(?:$|\?)/i.test(visualUrl) || app.coverType === 'video')) preview = `<video src="${escapeHtml(visualUrl)}" controls muted playsinline preload="metadata"></video>`;
+        else if (visualUrl) preview = `<img src="${escapeHtml(visualUrl)}" alt="${escapeHtml(label)}" loading="lazy">`;
+        return `<div class="media-input">${preview}<div class="media-input-copy"><b>${escapeHtml(label)}</b><span>${escapeHtml(appFieldNames[type] || type || '媒体')} · 示例文件：${escapeHtml(sample)}</span><span class="fine-print">${directUrl ? '公开示例素材' : '上方为应用公开示例封面；原始上传文件未提供可访问链接'}</span></div></div>`;
+      }).join('')}</div>`;
     }
 
     function renderAppExamplePrompts(nodes) {
@@ -526,8 +539,8 @@
         $('#detailBody').innerHTML = `
           ${app.coverUrl ? `<div class="detail-preview">${appPreview(data, true)}</div>` : ''}
           <div class="pills"><span class="pill type ${escapeHtml(outputType)}">输出：${escapeHtml(typeNames[outputType] || outputType)}</span><span class="pill">${data.nodeCount || nodes.length} 个公开参数</span></div>
-          <div class="detail-section"><h3>效果概览</h3><p class="effect-copy">${escapeHtml(data.purpose || appDescription(app))}</p></div>
-          <div class="detail-section"><h3>生成示例需要上传的素材</h3><p class="fine-print">以下是本地缓存中识别到的输入素材；示例文件名来自公开参数，实际调用时请替换成自己的图片、视频或音频。</p>${renderAppExampleInputs(nodes)}</div>
+          <div class="detail-section"><h3>这个应用能生成什么</h3><p class="effect-copy">${escapeHtml(data.purpose || appDescription(app))}</p><p class="fine-print">上方预览是该应用公开的示例输出；下面列出复现这条示例时需要准备的素材和文字。</p></div>
+          <div class="detail-section"><h3>生成这条预览需要上传的素材</h3><p class="fine-print">图片、视频或音频会直接展示可获得的公开示例；原始上传文件若没有公开 URL，会同时保留文件名供你替换上传。</p>${renderAppExampleInputs(data, nodes)}</div>
           <div class="detail-section"><h3>生成示例使用的文字</h3><p class="fine-print">以下文字来自应用公开节点的默认值，可以直接作为测试输入的起点。</p>${renderAppExamplePrompts(nodes)}</div>
           <div class="detail-section"><h3>需要准备的输入</h3><p class="fine-print">${escapeHtml(appInputSummary(nodes))}</p>${media.length ? `<div class="params">${media.map(node => `<div class="param"><code>${escapeHtml(node.description || appFieldNames[String(node.fieldType).toUpperCase()] || '媒体素材')}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '媒体')} · 上传文件</small><span>输入</span></div>`).join('')}</div>` : '<div class="empty">没有识别到需要上传的图片、视频或音频；可能只需要文字或选项参数。</div>'}</div>
           <div class="detail-section"><h3>文字与控制参数</h3>${textParams.length ? `<div class="params">${textParams.map(node => { const options = formatFieldOptions(node.fieldData); return `<div class="param"><code>${escapeHtml(node.description || appFieldNames[String(node.fieldType).toUpperCase()] || '应用参数')}</code><small>${escapeHtml(appFieldNames[String(node.fieldType).toUpperCase()] || node.fieldType || '')}${node.fieldValue !== undefined ? ` · 当前 ${escapeHtml(JSON.stringify(node.fieldValue))}` : ''}${options ? ` · 选项：${escapeHtml(options)}` : ''}</small><span>可修改</span></div>`; }).join('')}</div>` : '<div class="empty">没有公开文字或控制参数。</div>'}</div>
