@@ -338,7 +338,7 @@
       if (!app.coverUrl) return '<div class="cover-fallback">AI 应用</div>';
       const url = escapeHtml(app.coverUrl);
       const title = escapeHtml(app.title || '');
-      if (/\.(mp4|webm|mov)(?:$|\?)/i.test(app.coverUrl)) {
+      if (app.coverType === 'video' || /\.(mp4|webm|mov)(?:$|\?)/i.test(app.coverUrl)) {
         return `<video ${detail ? 'src' : 'data-preview-src'}="${url}" muted loop playsinline ${detail ? 'controls autoplay' : 'preload="none"'} aria-label="${title}"></video>`;
       }
       return `<img src="${url}" alt="${title}" loading="lazy" onerror="this.closest('.cover').innerHTML='<div class=\"cover-fallback\">封面暂不可用</div>'">`;
@@ -352,8 +352,10 @@
 
     function renderAppExamplePrompts(nodes) {
       const prompts = appPromptNodes(nodes);
-      if (!prompts.length) return '<div class="empty">本地缓存没有识别到可直接复用的示例文字，请根据节点说明填写。</div>';
-      return `<div class="prompt-list">${prompts.map((node, index) => `<details class="prompt-item" ${index === prompts.length - 1 ? 'open' : ''}><summary>${escapeHtml(node.description || `文字输入 ${index + 1}`)}<span>示例文字</span></summary><pre>${escapeHtml(node.fieldValue || '')}</pre></details>`).join('')}</div>`;
+      const textDefaults = (nodes || []).filter(node => String(node.fieldType || '').toUpperCase() === 'STRING' && node.fieldValue && !prompts.includes(node));
+      const examples = prompts.length ? prompts : textDefaults;
+      if (!examples.length) return '<div class="empty">本地缓存没有识别到可直接复用的示例文字，请根据节点说明填写。</div>';
+      return `<div class="prompt-list">${examples.map((node, index) => `<details class="prompt-item" ${index === examples.length - 1 ? 'open' : ''}><summary>${escapeHtml(node.description || node.fieldName || `文字输入 ${index + 1}`)}<span>示例文字</span></summary><pre>${escapeHtml(node.fieldValue || '')}</pre></details>`).join('')}</div>`;
     }
 
     function setStatus(element, on, text) {
@@ -485,7 +487,7 @@
       $('#appSummary').textContent = `显示 ${state.appFiltered.length} / ${data.total || data.apps.length} 个 · 第 ${data.page || state.appPage} 页`;
       $('#appCards').innerHTML = state.appFiltered.length ? state.appFiltered.map((app, index) => `
         <article class="card app-card" tabindex="0" data-app-index="${index}">
-          <div class="cover">${appPreview(app)}${/\.(mp4|webm|mov)(?:$|\?)/i.test(app.coverUrl || '') ? '<span class="preview-badge">悬停预览</span>' : ''}</div>
+          <div class="cover">${appPreview(app)}${app.coverType === 'video' || /\.(mp4|webm|mov)(?:$|\?)/i.test(app.coverUrl || '') ? '<span class="preview-badge">悬停预览</span>' : ''}</div>
           <div class="app-copy"><div class="card-head"><h3>${escapeHtml(app.title || '未命名应用')}</h3><span class="pill type ${escapeHtml(appOutputType(app, app.nodes || []))}">${escapeHtml(typeNames[appOutputType(app, app.nodes || [])] || appOutputType(app, app.nodes || []))}</span></div><p>${escapeHtml(appDescription(app))}</p><div class="input-summary">${escapeHtml(appInputSummary(app.nodes || []))} · 点击查看示例输入与输出</div></div>
         </article>`).join('') : '<div class="empty">当前目录没有可显示的应用。</div>';
       $$('[data-app-index]').forEach(card => {

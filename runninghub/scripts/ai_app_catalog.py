@@ -143,6 +143,13 @@ def infer_purpose(app: dict, nodes: list[dict]) -> str:
 
     prompt = next((str(node.get("fieldValue") or "").strip() for node in nodes
                    if str(node.get("fieldName") or "").lower() in {"prompt", "text", "input_text"} and node.get("fieldValue")), "")
+    if not prompt:
+        # Many public AI apps expose their prompt as a generic `value` field.
+        # Prefer the longest non-empty text default so the catalog still tells
+        # the user what the example is intended to generate.
+        candidates = [str(node.get("fieldValue") or "").strip() for node in nodes
+                      if str(node.get("fieldType") or "").upper() == "STRING" and node.get("fieldValue")]
+        prompt = max(candidates, key=len, default="")
     prompt = " ".join(prompt.split())
     prompt_hint = f"典型效果：{prompt[:150]}{'…' if len(prompt) > 150 else ''}" if prompt else "效果由输入素材和参数决定"
     if output == "视频" and "IMAGE" in media and "VIDEO" in media:
@@ -261,7 +268,7 @@ def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
 
 
 def get_app(db: sqlite3.Connection, webapp_id: str) -> dict:
-    row = db.execute("SELECT webapp_id,title,description,purpose,cover_file,node_json,test_inputs,detail_error FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
+    row = db.execute("SELECT webapp_id,title,description,purpose,cover_file,cover_url,node_json,test_inputs,detail_error FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
     if not row:
         return {"webappId": webapp_id, "nodeCount": 0, "nodes": [], "detailError": "该应用尚未进入本地目录缓存"}
     try:
@@ -272,7 +279,7 @@ def get_app(db: sqlite3.Connection, webapp_id: str) -> dict:
         test_inputs = json.loads(row["test_inputs"] or "[]")
     except json.JSONDecodeError:
         test_inputs = []
-    return {"webappId": row["webapp_id"], "title": row["title"], "description": row["description"], "purpose": row["purpose"], "coverFile": row["cover_file"], "nodeCount": len(nodes), "nodes": nodes, "testInputs": test_inputs, "detailError": row["detail_error"]}
+    return {"webappId": row["webapp_id"], "title": row["title"], "description": row["description"], "purpose": row["purpose"], "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "nodeCount": len(nodes), "nodes": nodes, "testInputs": test_inputs, "detailError": row["detail_error"]}
 
 
 def main() -> int:

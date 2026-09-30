@@ -16,6 +16,8 @@ import mimetypes
 import subprocess
 import sys
 import time
+import urllib.request
+from urllib.parse import quote
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -70,13 +72,16 @@ class CatalogState:
             data["source"] = "local"
         for app in data.get("apps", []):
             cover_file = app.pop("coverFile", None)
+            cover_source = str(app.get("coverUrl") or cover_file or "")
+            if cover_source.lower().split("?", 1)[0].endswith((".mp4", ".webm", ".mov")):
+                app["coverType"] = "video"
             if cover_file and Path(cover_file).is_file() and Path(cover_file).parent == COVER_DIR:
                 app["coverUrl"] = f"/api/covers/{Path(cover_file).name}"
             elif app.get("coverUrl"):
-                # Older rows may still point at a removed temporary file. Keep
-                # the public RunningHub cover as a safe fallback until the row
-                # is refreshed into the stable local cover directory.
-                app["coverUrl"] = app["coverUrl"]
+                # Proxy public CDN covers through localhost. Some CDN objects
+                # reject browser hotlink requests even though the same URL is
+                # readable by the local catalog process.
+                app["coverUrl"] = f"/api/app-cover/{app.get('webappId')}"
             else:
                 app.pop("coverUrl", None)
         self.app_cache[cache_key] = (time.monotonic(), data)
@@ -145,6 +150,41 @@ class CatalogHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_remote_cover(self, webapp_id: str):
+        """Serve an AI app cover through localhost when the public CDN blocks hotlinking."""
+        import sqlite3
+        db_path = SKILL_DIR / "data" / "ai_apps.sqlite3"
+        with sqlite3.connect(db_path) as db:
+            row = db.execute("SELECT cover_file, cover_url FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
+        if not row:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        cover_file, cover_url = row
+        local = Path(cover_file) if cover_file else None
+        if local and local.is_file() and local.parent == COVER_DIR:
+            self.send_file(local)
+            return
+        if not cover_url:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        request = urllib.request.Request(cover_url, headers={"User-Agent": "RunningHubCatalog/1.0"})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = response.read()
+                content_type = response.headers.get_content_type()
+                if not content_type or content_type == "application/octet-stream":
+                    content_type = mimetypes.guess_type(cover_url.split("?", 1)[0])[0] or "application/octet-stream"
+        except Exception:
+            self.send_error(HTTPStatus.BAD_GATEWAY)
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "public, max-age=3600")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         try:
@@ -186,7 +226,22 @@ class CatalogHandler(BaseHTTPRequestHandler):
                     [sys.executable, str(AI_APP_CATALOG_SCRIPT), "--get", webapp_id],
                     timeout=30,
                 )
+                cover_file = data.pop("coverFile", "")
+                cover_source = str(data.get("coverUrl") or cover_file or "")
+                if cover_source.lower().split("?", 1)[0].endswith((".mp4", ".webm", ".mov")):
+                    data["coverType"] = "video"
+                local = Path(cover_file) if cover_file else None
+                if local and local.is_file() and local.parent == COVER_DIR:
+                    data["coverUrl"] = f"/api/covers/{quote(local.name)}"
+                elif data.get("coverUrl"):
+                    data["coverUrl"] = f"/api/app-cover/{webapp_id}"
                 self.send_json(data)
+                return
+            if parsed.path.startswith("/api/app-cover/"):
+                webapp_id = parsed.path.removeprefix("/api/app-cover/")
+                if not webapp_id.isdigit():
+                    raise ValueError("Invalid AI Application ID")
+                self.send_remote_cover(webapp_id)
                 return
             if parsed.path.startswith("/api/workflows/"):
                 workflow_id = parsed.path.removeprefix("/api/workflows/")
