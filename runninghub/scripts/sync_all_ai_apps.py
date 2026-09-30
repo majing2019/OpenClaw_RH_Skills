@@ -45,14 +45,15 @@ def upsert_page(db: sqlite3.Connection, data: dict, sort: str, remote_page: int,
         title = record.get("title", "") or ""
         description = record.get("description", "") or ""
         cover_url = record.get("cover", "") or ""
+        output_type = ai_app_catalog.app_output_type(title, description, "", [])
         existing = db.execute("SELECT purpose,node_json,detail_error,first_seen FROM apps WHERE webapp_id=?", (webapp_id,)).fetchone()
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         if existing:
-            db.execute("""UPDATE apps SET title=?,description=?,cover_url=?,last_seen=?,active=1
-                          WHERE webapp_id=?""", (title, description, cover_url, now, webapp_id))
+            db.execute("""UPDATE apps SET title=?,description=?,cover_url=?,output_type=?,last_seen=?,active=1
+                          WHERE webapp_id=?""", (title, description, cover_url, output_type, now, webapp_id))
         else:
-            db.execute("""INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active)
-                          VALUES(?,?,?,?,?,?,?,?,?,?,?,1)""", (webapp_id, title, description, "", cover_url, "", "[]", "", "", now, now))
+            db.execute("""INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active,output_type)
+                          VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?)""", (webapp_id, title, description, "", cover_url, "", "[]", "", "", now, now, output_type))
 
         global_position = (remote_page - 1) * source_size + index
         local_page = global_position // 24 + 1

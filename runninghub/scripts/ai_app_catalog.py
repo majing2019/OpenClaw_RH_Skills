@@ -82,9 +82,12 @@ def connect(path: Path) -> sqlite3.Connection:
         ("api_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("api_example", "TEXT NOT NULL DEFAULT ''"),
         ("api_checked_at", "TEXT NOT NULL DEFAULT ''"),
+        ("output_type", "TEXT NOT NULL DEFAULT ''"),
     ):
         if name not in columns:
             db.execute(f"ALTER TABLE apps ADD COLUMN {name} {definition}")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_apps_output_type ON apps(output_type)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_apps_api_enabled ON apps(api_enabled)")
     return db
 
 
@@ -282,16 +285,17 @@ def sync_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
         covers_json = json.dumps(metadata.get("covers") or [], ensure_ascii=False)
         api_example = str(app.get("apiExample") or metadata.get("apiExample") or "")
         api_enabled = 1 if (metadata.get("apiEnabled") or api_example) else 0
+        output_type = app_output_type(app.get("title", ""), app.get("description", ""), purpose, nodes)
         api_checked_at = now
-        values = (webapp_id, app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at)
+        values = (webapp_id, app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at, output_type)
         if current is None:
-            db.execute("INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active,official_description,tags_json,covers_json,api_enabled,api_example,api_checked_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?)", values[:9] + (now, now) + values[10:])
+            db.execute("INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active,official_description,tags_json,covers_json,api_enabled,api_example,api_checked_at,output_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?)", values[:9] + (now, now) + values[10:])
             created += 1
         elif current["content_hash"] != content_hash:
-            db.execute("UPDATE apps SET title=?,description=?,cover_file=?,cover_url=?,purpose=?,node_json=?,detail_error=?,content_hash=?,last_seen=?,active=1,official_description=?,tags_json=?,covers_json=?,api_enabled=?,api_example=?,api_checked_at=? WHERE webapp_id=?", (app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at, webapp_id))
+            db.execute("UPDATE apps SET title=?,description=?,cover_file=?,cover_url=?,purpose=?,node_json=?,detail_error=?,content_hash=?,last_seen=?,active=1,official_description=?,tags_json=?,covers_json=?,api_enabled=?,api_example=?,api_checked_at=?,output_type=? WHERE webapp_id=?", (app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at, output_type, webapp_id))
             updated += 1
         else:
-            db.execute("UPDATE apps SET cover_file=COALESCE(NULLIF(?, ''), cover_file), cover_url=COALESCE(NULLIF(?, ''), cover_url), purpose=COALESCE(NULLIF(?, ''), purpose), official_description=COALESCE(NULLIF(?, ''), official_description), tags_json=COALESCE(NULLIF(?, ''), tags_json), covers_json=COALESCE(NULLIF(?, ''), covers_json), api_enabled=?, api_example=?, api_checked_at=?, last_seen=?,active=1 WHERE webapp_id=?", (cover_file, app.get("coverUrl", ""), purpose, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at, now, webapp_id))
+            db.execute("UPDATE apps SET cover_file=COALESCE(NULLIF(?, ''), cover_file), cover_url=COALESCE(NULLIF(?, ''), cover_url), purpose=COALESCE(NULLIF(?, ''), purpose), official_description=COALESCE(NULLIF(?, ''), official_description), tags_json=COALESCE(NULLIF(?, ''), tags_json), covers_json=COALESCE(NULLIF(?, ''), covers_json), api_enabled=?, api_example=?, api_checked_at=?, output_type=?, last_seen=?,active=1 WHERE webapp_id=?", (cover_file, app.get("coverUrl", ""), purpose, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at, output_type, now, webapp_id))
             unchanged += 1
         db.execute("INSERT INTO app_pages(sort_name,webapp_id,page,position,last_seen) VALUES(?,?,?,?,?) ON CONFLICT(sort_name,webapp_id) DO UPDATE SET page=excluded.page,position=excluded.position,last_seen=excluded.last_seen", (sort, webapp_id, page, position, now))
     db.execute("INSERT INTO sync_runs(sort_name,page,size,remote_total,remote_pages,created,updated,unchanged,synced_at) VALUES(?,?,?,?,?,?,?,?,?)", (sort, page, size, int(data.get("total", 0)), int(data.get("pages", 0)), created, updated, unchanged, now))
@@ -324,23 +328,20 @@ def app_output_type(title: str, description: str, purpose: str, nodes: list[dict
 
 def list_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int, output_type: str = "", api_status: str = "") -> dict:
     if output_type or api_status:
-        candidates = db.execute("""
-            SELECT webapp_id, title, description, cover_file, cover_url, purpose, node_json, detail_error, official_description, tags_json, covers_json, api_enabled, api_example
-          FROM apps WHERE active=1 ORDER BY last_seen DESC
-        """).fetchall()
-        matched = []
-        for row in candidates:
-            try:
-                nodes = json.loads(row["node_json"] or "[]")
-            except json.JSONDecodeError:
-                nodes = []
-            type_match = not output_type or app_output_type(row["title"], row["description"], row["purpose"], nodes) == output_type
-            api_match = not api_status or (api_status == "yes" and bool(row["api_enabled"])) or (api_status == "no" and not bool(row["api_enabled"]))
-            if type_match and api_match:
-                matched.append(row)
-        total = len(matched)
+        where = ["active=1"]
+        params: list[object] = []
+        if output_type:
+            where.append("output_type=?")
+            params.append(output_type)
+        if api_status == "yes":
+            where.append("api_enabled=1")
+        elif api_status == "no":
+            where.append("api_enabled=0")
+        clause = " AND ".join(where)
+        total = int(db.execute(f"SELECT COUNT(*) FROM apps WHERE {clause}", params).fetchone()[0])
         pages = max(1, (total + size - 1) // size)
-        rows = matched[(page - 1) * size: page * size]
+        selected = db.execute(f"SELECT webapp_id, title, description, cover_file, cover_url, purpose, node_json, detail_error, official_description, tags_json, covers_json, api_enabled, api_example FROM apps WHERE {clause} ORDER BY last_seen DESC LIMIT ? OFFSET ?", params + [size, (page - 1) * size]).fetchall()
+        rows = selected
         return {"sort": sort, "page": page, "size": size, "type": output_type, "api": api_status, "total": total, "pages": pages, "hasNext": page < pages, "apps": [row_to_app(r) for r in rows]}
 
     rows = db.execute("""
