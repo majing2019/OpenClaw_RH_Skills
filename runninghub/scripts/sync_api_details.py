@@ -43,7 +43,7 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="recheck even already-checked apps")
     parser.add_argument("--progress", default="/tmp/runninghub_api_sync.json")
     args = parser.parse_args()
-    workers = max(1, min(args.workers, 12))
+    workers = max(1, min(args.workers, 20))
     api_key = runninghub_app.resolve_api_key(None)
     if not api_key:
         raise SystemExit("RunningHub API key is not configured")
