@@ -81,6 +81,7 @@ def connect(path: Path) -> sqlite3.Connection:
         ("covers_json", "TEXT NOT NULL DEFAULT '[]'"),
         ("api_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("api_example", "TEXT NOT NULL DEFAULT ''"),
+        ("api_checked_at", "TEXT NOT NULL DEFAULT ''"),
     ):
         if name not in columns:
             db.execute(f"ALTER TABLE apps ADD COLUMN {name} {definition}")
@@ -249,13 +250,15 @@ def sync_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
         webapp_id = str(app.get("webappId", "")).strip()
         if not webapp_id:
             continue
-        current = db.execute("SELECT content_hash, official_description, tags_json, covers_json FROM apps WHERE webapp_id = ?", (webapp_id,)).fetchone()
+        current = db.execute("SELECT content_hash, official_description, tags_json, covers_json, api_checked_at FROM apps WHERE webapp_id = ?", (webapp_id,)).fetchone()
         content_hash = digest(app)
-        needs_detail = current is None or current["content_hash"] != content_hash or current["tags_json"] in (None, "", "[]", "null")
+        needs_detail = (current is None or current["content_hash"] != content_hash
+                        or current["tags_json"] in (None, "", "[]", "null")
+                        or not current["api_checked_at"])
         if needs_detail:
             nodes, detail_error, metadata = fetch_detail(webapp_id)
         else:
-            saved = db.execute("SELECT node_json, detail_error, official_description, tags_json, covers_json FROM apps WHERE webapp_id = ?", (webapp_id,)).fetchone()
+            saved = db.execute("SELECT node_json, detail_error, official_description, tags_json, covers_json, api_enabled, api_example FROM apps WHERE webapp_id = ?", (webapp_id,)).fetchone()
             try:
                 nodes = json.loads(saved["node_json"] or "[]") if saved else []
             except json.JSONDecodeError:
@@ -269,23 +272,26 @@ def sync_page(db: sqlite3.Connection, sort: str, size: int, page: int, days: int
                 covers = json.loads(saved["covers_json"] or "[]") if saved else []
             except json.JSONDecodeError:
                 covers = []
-            metadata = {"description": saved["official_description"] if saved else "", "tags": tags, "covers": covers}
+            metadata = {"description": saved["official_description"] if saved else "", "tags": tags, "covers": covers,
+                        "apiEnabled": bool(saved["api_enabled"]) if saved else False,
+                        "apiExample": saved["api_example"] if saved else ""}
         purpose = infer_purpose(app, nodes, metadata)
         cover_file = stable_cover(app)
         official_description = clean_html(metadata.get("description") or "")
         tags_json = json.dumps(metadata.get("tags") or [], ensure_ascii=False)
         covers_json = json.dumps(metadata.get("covers") or [], ensure_ascii=False)
         api_example = str(app.get("apiExample") or metadata.get("apiExample") or "")
-        api_enabled = 1 if (app.get("apiEnabled") or api_example) else 0
-        values = (webapp_id, app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example)
+        api_enabled = 1 if (metadata.get("apiEnabled") or api_example) else 0
+        api_checked_at = now
+        values = (webapp_id, app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at)
         if current is None:
-            db.execute("INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active,official_description,tags_json,covers_json,api_enabled,api_example) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?)", values[:9] + (now, now) + values[10:])
+            db.execute("INSERT INTO apps(webapp_id,title,description,cover_file,cover_url,purpose,node_json,detail_error,content_hash,first_seen,last_seen,active,official_description,tags_json,covers_json,api_enabled,api_example,api_checked_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?)", values[:9] + (now, now) + values[10:])
             created += 1
         elif current["content_hash"] != content_hash:
-            db.execute("UPDATE apps SET title=?,description=?,cover_file=?,cover_url=?,purpose=?,node_json=?,detail_error=?,content_hash=?,last_seen=?,active=1,official_description=?,tags_json=?,covers_json=?,api_enabled=?,api_example=? WHERE webapp_id=?", (app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example, webapp_id))
+            db.execute("UPDATE apps SET title=?,description=?,cover_file=?,cover_url=?,purpose=?,node_json=?,detail_error=?,content_hash=?,last_seen=?,active=1,official_description=?,tags_json=?,covers_json=?,api_enabled=?,api_example=?,api_checked_at=? WHERE webapp_id=?", (app.get("title", ""), app.get("description", ""), cover_file, app.get("coverUrl", ""), purpose, json.dumps(nodes, ensure_ascii=False), detail_error, content_hash, now, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at, webapp_id))
             updated += 1
         else:
-            db.execute("UPDATE apps SET cover_file=COALESCE(NULLIF(?, ''), cover_file), cover_url=COALESCE(NULLIF(?, ''), cover_url), purpose=COALESCE(NULLIF(?, ''), purpose), official_description=COALESCE(NULLIF(?, ''), official_description), tags_json=COALESCE(NULLIF(?, ''), tags_json), covers_json=COALESCE(NULLIF(?, ''), covers_json), api_enabled=?, api_example=COALESCE(NULLIF(?, ''), api_example), last_seen=?,active=1 WHERE webapp_id=?", (cover_file, app.get("coverUrl", ""), purpose, official_description, tags_json, covers_json, api_enabled, api_example, now, webapp_id))
+            db.execute("UPDATE apps SET cover_file=COALESCE(NULLIF(?, ''), cover_file), cover_url=COALESCE(NULLIF(?, ''), cover_url), purpose=COALESCE(NULLIF(?, ''), purpose), official_description=COALESCE(NULLIF(?, ''), official_description), tags_json=COALESCE(NULLIF(?, ''), tags_json), covers_json=COALESCE(NULLIF(?, ''), covers_json), api_enabled=?, api_example=?, api_checked_at=?, last_seen=?,active=1 WHERE webapp_id=?", (cover_file, app.get("coverUrl", ""), purpose, official_description, tags_json, covers_json, api_enabled, api_example, api_checked_at, now, webapp_id))
             unchanged += 1
         db.execute("INSERT INTO app_pages(sort_name,webapp_id,page,position,last_seen) VALUES(?,?,?,?,?) ON CONFLICT(sort_name,webapp_id) DO UPDATE SET page=excluded.page,position=excluded.position,last_seen=excluded.last_seen", (sort, webapp_id, page, position, now))
     db.execute("INSERT INTO sync_runs(sort_name,page,size,remote_total,remote_pages,created,updated,unchanged,synced_at) VALUES(?,?,?,?,?,?,?,?,?)", (sort, page, size, int(data.get("total", 0)), int(data.get("pages", 0)), created, updated, unchanged, now))
@@ -364,7 +370,8 @@ def row_to_app(row: sqlite3.Row) -> dict:
     for node in nodes:
         if not node.get("descriptionCn"):
             node["descriptionCn"] = node_description(node)
-    return {"title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "nodes": nodes, "detailError": row["detail_error"], "webappId": row["webapp_id"], "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "apiEnabled": bool(row["api_enabled"]), "apiExample": row["api_example"]}
+    webapp_id = row["webapp_id"]
+    return {"title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "nodes": nodes, "detailError": row["detail_error"], "webappId": webapp_id, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "apiEnabled": bool(row["api_enabled"]), "apiExample": row["api_example"], "apiUrl": f"https://www.runninghub.ai/zh-cn/call-api/api-detail/{webapp_id}?apiType=4"}
 
 
 def get_app(db: sqlite3.Connection, webapp_id: str) -> dict:
@@ -390,7 +397,8 @@ def get_app(db: sqlite3.Connection, webapp_id: str) -> dict:
         covers = json.loads(row["covers_json"] or "[]")
     except json.JSONDecodeError:
         covers = []
-    return {"webappId": row["webapp_id"], "title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "nodeCount": len(nodes), "nodes": nodes, "testInputs": test_inputs, "detailError": row["detail_error"], "apiEnabled": bool(row["api_enabled"]), "apiExample": row["api_example"]}
+    webapp_id = row["webapp_id"]
+    return {"webappId": webapp_id, "title": row["title"], "description": row["description"], "purpose": row["purpose"], "officialDescription": row["official_description"], "tags": tags, "covers": covers, "coverFile": row["cover_file"], "coverUrl": row["cover_url"], "nodeCount": len(nodes), "nodes": nodes, "testInputs": test_inputs, "detailError": row["detail_error"], "apiEnabled": bool(row["api_enabled"]), "apiExample": row["api_example"], "apiUrl": f"https://www.runninghub.ai/zh-cn/call-api/api-detail/{webapp_id}?apiType=4"}
 
 
 def main() -> int:

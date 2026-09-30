@@ -39,8 +39,10 @@ from runninghub import resolve_api_key, require_api_key, cmd_check, poll_task, f
 # HTTP helpers (curl-based, stdlib only)
 # ---------------------------------------------------------------------------
 
-def curl_get(url: str, timeout: int = 30) -> subprocess.CompletedProcess:
+def curl_get(url: str, api_key: str = "", timeout: int = 30) -> subprocess.CompletedProcess:
     cmd = ["curl", "-s", "-S", "--fail-with-body", "--max-time", str(timeout), url]
+    if api_key:
+        cmd.extend(["-H", f"Authorization: {api_key}"])
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
@@ -109,8 +111,9 @@ def _extract_webapp_id(invoke_example: str) -> str | None:
 def _sanitize_api_example(example: str) -> str:
     """Keep the official request shape without persisting a secret key."""
     text = str(example or "")
-    text = re.sub(r"(Authorization\\s*[:=]\\s*(?:Bearer\\s+)?)[^\\s\\\"']+", r"\\1YOUR_API_KEY", text, flags=re.I)
-    text = re.sub(r'("apiKey"\\s*:\\s*")[^"]+', r'\\1YOUR_API_KEY', text, flags=re.I)
+    text = re.sub(r"(Authorization\s*[:=]\s*(?:Bearer\s+)?)[^\s\"']+", r"\1YOUR_API_KEY", text, flags=re.I)
+    text = re.sub(r'("apiKey"\s*:\s*")[^"]+', r'\1YOUR_API_KEY', text, flags=re.I)
+    text = re.sub(r"(apiKey\s*[=:]\s*)[^\s,}'\"]+", r"\1YOUR_API_KEY", text, flags=re.I)
     return text
 
 
@@ -150,7 +153,11 @@ def list_apps(api_key: str, sort: str = "RECOMMEND", size: int = 10,
 
 def get_app_info(api_key: str, webapp_id: str) -> dict:
     url = f"{API_HOST}{NODE_INFO_PATH}?apiKey={api_key}&webappId={webapp_id}"
-    result = curl_get(url)
+    # The official API-demo endpoint requires the API key in both the query
+    # string and Authorization header.  Its `curl` field is the source of
+    # truth for whether this AI app has a public API, not the paginated list's
+    # optional invokeExample field.
+    result = curl_get(url, api_key)
     resp = _parse_response(result, "Get node info")
 
     if resp.get("code") != 0:
