@@ -180,9 +180,12 @@ def infer_purpose(app: dict, nodes: list[dict], metadata: dict | None = None) ->
         count = media.count(kind)
         if count:
             input_labels.append(f"{count} 个{label}")
-    text_count = sum(1 for node in nodes if str(node.get("fieldType") or "").upper() in {"STRING", "LIST", "INT", "FLOAT", "BOOLEAN", "SWITCH"})
+    text_count = sum(1 for node in nodes if str(node.get("fieldType") or "").upper() == "STRING")
+    control_count = sum(1 for node in nodes if str(node.get("fieldType") or "").upper() in {"LIST", "INT", "FLOAT", "BOOLEAN", "SWITCH"})
     if text_count:
-        input_labels.append(f"{text_count} 个文字或控制参数")
+        input_labels.append(f"{text_count} 个文字")
+    if control_count:
+        input_labels.append(f"{control_count} 个控制参数")
     input_hint = "、".join(input_labels) if input_labels else "公开参数"
 
     prompt = next((str(node.get("fieldValue") or "").strip() for node in nodes
