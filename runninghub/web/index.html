@@ -444,15 +444,15 @@
     async function refreshCapabilities() {
       const button = $('#refreshCapabilities');
       button.disabled = true;
-      $('#capSummary').textContent = '正在重新读取本地标准能力目录…';
+      $('#capSummary').textContent = '正在从 RunningHub 官方注册表更新标准能力…';
       try {
-        const catalog = await fetchJson(`/api/capabilities?refresh=${Date.now()}`);
+        const catalog = await fetchJson(`/api/capabilities?refresh=1&nonce=${Date.now()}`);
         state.capabilities = catalog.endpoints || [];
         state.capabilityVersion = catalog.version || '';
         populateFilters();
         applyFilters();
         setStatus($('#catalogStatus'), true, `${catalog.total || state.capabilities.length} 项 · ${state.capabilityVersion || '本地目录'}`);
-        $('#capSummary').textContent = `目录已刷新：${state.filtered.length} / ${state.capabilities.length} 项 · 版本 ${state.capabilityVersion || '本地'}`;
+        $('#capSummary').textContent = `官方目录已更新：${state.filtered.length} / ${state.capabilities.length} 项 · 版本 ${state.capabilityVersion || '本地'}`;
       } catch (error) {
         $('#capSummary').textContent = `刷新失败：${error.message}`;
       } finally {
@@ -517,18 +517,18 @@
       const payloadJson = JSON.stringify(payload, null, 2);
       const submitExample = [
         `curl --request POST 'https://www.runninghub.cn/openapi/v2/${item.endpoint}' \\`,
-        "  --header 'Authorization: Bearer $RUNNINGHUB_API_KEY' \\",
+        '  --header "Authorization: Bearer $RUNNINGHUB_API_KEY" \\',
         "  --header 'Content-Type: application/json' \\",
         "  --data-binary @- <<'JSON'",
         payloadJson,
         'JSON',
       ].join('\n');
-      const queryExample = `curl --request POST 'https://www.runninghub.cn/openapi/v2/query' --header 'Authorization: Bearer $RUNNINGHUB_API_KEY' --header 'Content-Type: application/json' --data '{"taskId":"<上一步返回的 taskId>"}'`;
+      const queryExample = `curl --request POST 'https://www.runninghub.cn/openapi/v2/query' --header "Authorization: Bearer $RUNNINGHUB_API_KEY" --header 'Content-Type: application/json' --data '{"taskId":"<上一步返回的 taskId>"}'`;
       $('#detailBody').innerHTML = `
         <div class="pills"><span class="pill type ${escapeHtml(item.output_type)}">${escapeHtml(typeNames[item.output_type] || item.output_type)}</span><span class="pill">${escapeHtml(item.task)}</span><span class="pill">${escapeHtml(item.category || '未分类')}</span></div>
         <div class="detail-section"><h3>如何调用这个 API</h3>
-          <p class="fine-print">先设置环境变量 <code>RUNNINGHUB_API_KEY</code>。请求方式为 POST，endpoint 和参数名来自本地能力定义。示例只填入必填参数与官方默认值；请替换 REPLACE_WITH_* 和示例素材 URL。${hasMedia ? '本地图片、视频或音频需先上传到 RunningHub，再把返回的 download_url 填入对应字段。' : ''}</p>
-          ${hasMedia ? `<pre class="api-example">curl --request POST 'https://www.runninghub.cn/openapi/v2/media/upload/binary' --header 'Authorization: Bearer $RUNNINGHUB_API_KEY' --form 'file=@./your-media-file'</pre><p class="fine-print">从上传响应的 data.download_url 取地址，替换请求体里的示例媒体 URL。</p>` : ''}
+          <p class="fine-print">先在终端设置密钥（不要把真实密钥写进代码或发给他人）：<code>export RUNNINGHUB_API_KEY='你的 API Key'</code>。请求方式为 POST，endpoint 和参数名来自本地能力定义。示例只填入必填参数与官方默认值；请替换 REPLACE_WITH_* 和示例素材 URL。${hasMedia ? '本地图片、视频或音频需先上传到 RunningHub，再把返回的 download_url 填入对应字段。' : ''}</p>
+          ${hasMedia ? `<pre class="api-example">curl --request POST 'https://www.runninghub.cn/openapi/v2/media/upload/binary' --header "Authorization: Bearer $RUNNINGHUB_API_KEY" --form 'file=@./your-media-file'</pre><p class="fine-print">从上传响应的 data.download_url 取地址，替换请求体里的示例媒体 URL。</p>` : ''}
           <p class="fine-print">① 提交任务（返回 taskId）</p><pre class="api-example">${escapeHtml(submitExample)}</pre>
           <p class="fine-print">② 用 taskId 查询任务；重复查询直到 status 为 SUCCESS、FAILED 或 CANCEL。成功结果在 results 中。</p><pre class="api-example">${escapeHtml(queryExample)}</pre>
           <a class="action-link" href="https://www.runninghub.cn/call-api/standard-api" target="_blank" rel="noopener noreferrer">查看 RunningHub 标准 API 文档</a>

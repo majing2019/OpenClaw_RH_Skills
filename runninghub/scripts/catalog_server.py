@@ -14,9 +14,11 @@ import copy
 import errno
 import json
 import mimetypes
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -41,6 +43,48 @@ APP_SORTS = {"RECOMMEND", "HOTTEST", "NEWEST"}
 
 sys.path.insert(0, str(SCRIPT_DIR))
 from runninghub import resolve_api_key  # noqa: E402
+import build_capabilities  # noqa: E402
+
+CAPABILITIES_REGISTRY_URL = (
+    "https://raw.githubusercontent.com/HM-RunningHub/ComfyUI_RH_OpenAPI/main/models_registry.json"
+)
+
+
+def refresh_capabilities_catalog() -> dict:
+    request = urllib.request.Request(
+        CAPABILITIES_REGISTRY_URL,
+        headers={"User-Agent": "RunningHub-Skills-Catalog/1.0", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            registry = json.loads(response.read().decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"读取 RunningHub 官方能力注册表失败：{exc}") from exc
+    if not isinstance(registry, list) or not registry:
+        raise RuntimeError("RunningHub 官方能力注册表格式异常；本地目录未更改")
+    catalog = build_capabilities.build_capabilities(registry)
+    endpoints = catalog.get("endpoints")
+    endpoint_ids = [entry.get("endpoint") for entry in endpoints or [] if isinstance(entry, dict)]
+    if not endpoints or len(endpoint_ids) != len(endpoints) or any(not item for item in endpoint_ids):
+        raise RuntimeError("官方能力注册表包含无效 endpoint；本地目录未更改")
+    if len(set(endpoint_ids)) != len(endpoint_ids):
+        raise RuntimeError("官方能力注册表包含重复 endpoint；本地目录未更改")
+    catalog["source"] = "HM-RunningHub/ComfyUI_RH_OpenAPI/models_registry.json"
+    CAPABILITIES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=CAPABILITIES_PATH.parent,
+            prefix=".capabilities-", suffix=".tmp", delete=False,
+        ) as handle:
+            temp_path = handle.name
+            json.dump(catalog, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        os.replace(temp_path, CAPABILITIES_PATH)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+    return catalog
 
 
 class CatalogState:
@@ -298,7 +342,11 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 })
                 return
             if parsed.path == "/api/capabilities":
-                self.send_file(CAPABILITIES_PATH, "application/json; charset=utf-8")
+                query = parse_qs(parsed.query)
+                if query.get("refresh", ["0"])[0] == "1":
+                    self.send_json(refresh_capabilities_catalog())
+                else:
+                    self.send_file(CAPABILITIES_PATH, "application/json; charset=utf-8")
                 return
             if parsed.path == "/api/apps":
                 query = parse_qs(parsed.query)
