@@ -23,7 +23,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-API_HOST = "https://www.runninghub.cn"
+API_HOST = os.environ.get("RUNNINGHUB_APP_API_BASE_URL", "https://www.runninghub.cn").rstrip("/")
 APP_LIST_PATH = "/openapi/v2/aiapp/list"
 NODE_INFO_PATH = "/api/webapp/apiCallDemo"
 UPLOAD_PATH = "/task/openapi/upload"
@@ -140,7 +140,7 @@ def list_apps(api_key: str, sort: str = "RECOMMEND", size: int = 10,
     return resp.get("data", {})
 
 
-def get_node_info(api_key: str, webapp_id: str) -> list[dict]:
+def get_app_info(api_key: str, webapp_id: str) -> dict:
     url = f"{API_HOST}{NODE_INFO_PATH}?apiKey={api_key}&webappId={webapp_id}"
     result = curl_get(url)
     resp = _parse_response(result, "Get node info")
@@ -153,7 +153,8 @@ def get_node_info(api_key: str, webapp_id: str) -> list[dict]:
         }, ensure_ascii=False), file=sys.stderr)
         sys.exit(1)
 
-    node_list = resp.get("data", {}).get("nodeInfoList", [])
+    data = resp.get("data", {}) or {}
+    node_list = data.get("nodeInfoList", [])
     if not node_list:
         print(json.dumps({
             "error": "NO_NODES",
@@ -162,7 +163,19 @@ def get_node_info(api_key: str, webapp_id: str) -> list[dict]:
         }, ensure_ascii=False), file=sys.stderr)
         sys.exit(1)
 
-    return node_list
+    return {
+        "nodes": node_list,
+        "description": data.get("description") or "",
+        "descriptionEn": data.get("descriptionEn") or "",
+        "webappName": data.get("webappName") or "",
+        "tags": data.get("tags") or [],
+        "covers": data.get("covers") or [],
+    }
+
+
+def get_node_info(api_key: str, webapp_id: str) -> list[dict]:
+    """Backward-compatible node-only helper used by the runner."""
+    return get_app_info(api_key, webapp_id)["nodes"]
 
 
 def upload_file(api_key: str, file_path: str) -> str:
@@ -367,11 +380,17 @@ def cmd_list(api_key: str, sort: str, size: int, page: int, days: int):
 
 
 def cmd_info(api_key: str, webapp_id: str):
-    node_list = get_node_info(api_key, webapp_id)
+    info = get_app_info(api_key, webapp_id)
+    node_list = info["nodes"]
     print(json.dumps({
         "webappId": webapp_id,
         "nodeCount": len(node_list),
         "nodes": node_list,
+        "description": info["description"],
+        "descriptionEn": info["descriptionEn"],
+        "webappName": info["webappName"],
+        "tags": info["tags"],
+        "covers": info["covers"],
     }, indent=2, ensure_ascii=False))
 
 
